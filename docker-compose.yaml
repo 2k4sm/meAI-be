@@ -1,24 +1,22 @@
 services:
-  meAI-be:
+  meai-be:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: meAI-be
+    container_name: meai-be
     env_file:
       - .env
     depends_on:
-      - db
-      - chromadb
+      - meai-db
+      - meai-chromadb
     ports:
       - "3000:3000"
     expose:
       - 3000
-    volumes:
-      - .:/app
 
-  meAI-db:
+  meai-db:
     image: postgres:15
-    container_name: meAI-db
+    container_name: meai-db
     restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -31,9 +29,9 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
-  meAI-chromadb:
+  meai-chromadb:
     image: chromadb/chroma:latest
-    container_name: meAI-chromadb
+    container_name: meai-chromadb
     ports:
       - "8000:8000"
     expose:
