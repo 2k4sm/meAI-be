@@ -11,3 +11,7 @@ python-multipart
 starlette
 itsdangerous
 httpx
+langchain
+langchain-google-genai
+chromadb
+pyjwt

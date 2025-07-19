@@ -37,7 +37,7 @@ services:
     expose:
       - 8000
     volumes:
-      - chroma_data:/chroma
+      - chroma_data:/data
 
 volumes:
   postgres_data:
