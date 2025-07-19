@@ -3,25 +3,21 @@ from typing import List
 from datetime import datetime
 from app.models.message import MessageType
 
-class MessageBase(BaseModel):
+class MessageCreate(BaseModel):
     content: str
     type: MessageType
-
-class MessageCreate(MessageBase):
     conversation_id: int
-    user_id: int
 
-class MessageInDBBase(MessageBase):
+class MessageRead(BaseModel):
     message_id: int
     conversation_id: int
     user_id: int
+    type: MessageType
+    content: str
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = {'from_attributes': True}
 
-class Message(MessageInDBBase):
-    pass
 
 class MessageList(BaseModel):
-    messages: List[Message]
+    messages: List[MessageRead]
