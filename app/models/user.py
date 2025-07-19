@@ -8,11 +8,14 @@ class User(Base):
     __tablename__ = "users"
 
     user_id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
-    refresh_token = Column(String, unique=True, index=True, nullable=False)
+    name = Column(String, nullable=False)
     avatar_url = Column(String, nullable=True)
+    auth_method = Column(String, default="google", nullable=False)
+    password = Column(String, nullable=True)
+    refresh_token = Column(String, unique=True, index=True, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_login = Column(DateTime(timezone=True), nullable=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")

@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from app.config import settings
+from app.routers import auth
 
 app = FastAPI(
     title=settings.app_name,
@@ -10,6 +12,8 @@ app = FastAPI(
     redoc_url="/redoc" if settings.debug else None,
 )
 
+app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
@@ -18,6 +22,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+#routers
+app.include_router(auth.router)
 
 @app.get("/")
 async def root():
@@ -26,7 +32,6 @@ async def root():
         "version": settings.app_version,
         "status": "running"
     }
-
 
 @app.get("/health")
 async def health_check():
