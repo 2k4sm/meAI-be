@@ -7,7 +7,9 @@ from starlette.requests import Request
 from app.config import settings
 from app.db.session import get_db
 from app.models.user import User
-from app.services.auth_service import create_access_token, create_refresh_token, verify_token, get_or_create_user, get_user_by_email
+from app.utils.auth_utils import create_access_token, create_refresh_token, verify_token
+from app.services.auth_service import get_or_create_user, get_user_by_email
+from app.schemas.user import UserRead
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -52,7 +54,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Authentication failed: {str(e)}")
 
-@router.get("/me")
+@router.get("/me", response_model=UserRead)
 async def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     """Get current user information"""
     payload = verify_token(token)
@@ -63,15 +65,7 @@ async def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db))
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
     
-    return {
-        "user_id": user.user_id,
-        "email": user.email, 
-        "name": user.name, 
-        "avatar_url": user.avatar_url,
-        "auth_method": user.auth_method,
-        "last_login": user.last_login,
-        "created_at": user.created_at
-    }
+    return UserRead.model_validate(user)
 
 @router.post("/refresh")
 async def refresh_token(request: Request, db: Session = Depends(get_db)):

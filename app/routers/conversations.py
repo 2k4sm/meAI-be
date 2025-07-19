@@ -1,18 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
 from app.routers.auth import verify_token, get_user_by_email
 from sqlalchemy.orm import Session
-from typing import List
 from app.db.session import get_db
 from app.dependencies import get_current_user
-from app.models.user import User
-from app.schemas.conversation import Conversation, ConversationCreate, ConversationList
-from app.schemas.message import Message, MessageList, MessageCreate
+from app.schemas.conversation import ConversationRead, ConversationCreate, ConversationList
+from app.schemas.message import MessageRead, MessageList, MessageCreate
 from app.services import conversation_service
-from app.services.llm_service import get_context, stream_llm_response, store_message_embedding
-import jwt
-from app.config import settings
+from app.services.llm_service import stream_llm_response, store_message_embedding, get_context_with_summary
 from app.models.message import MessageType
-from fastapi.security import HTTPAuthorizationCredentials
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
@@ -21,7 +16,7 @@ def list_conversations(db: Session = Depends(get_db), current_user = Depends(get
     conversations = conversation_service.get_conversations(db, user_id=current_user.user_id)
     return {"conversations": conversations}
 
-@router.post("/", response_model=Conversation)
+@router.post("/", response_model=ConversationRead)
 def create_conversation(conversation_in: ConversationCreate, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     conversation = conversation_service.create_conversation(db, user_id=current_user.user_id, conversation_in=conversation_in)
     return conversation
@@ -66,13 +61,11 @@ async def conversation_ws(websocket: WebSocket, conversation_id: int, db: Sessio
             message_in = MessageCreate(
                 conversation_id=conversation_id,
                 type=MessageType.HUMAN,
-                content=user_message,
-                user_id=user_id
+                content=user_message
             )
-            
-            message = conversation_service.add_message(db, message_in)
-            await store_message_embedding(message, conversation_id)
-            context = await get_context(user_message, conversation_id)
+            message_obj = await conversation_service.add_message(db, message_in, user_id)
+            await store_message_embedding(message_obj, conversation_id)
+            context = await get_context_with_summary(db, conversation_id, user_message)
             llm_response = ""
             async for chunk in stream_llm_response(user_message, context):
                 await websocket.send_json({"role": "assistant", "content": chunk})
@@ -81,11 +74,10 @@ async def conversation_ws(websocket: WebSocket, conversation_id: int, db: Sessio
             reply_in = MessageCreate(
                 conversation_id=conversation_id,
                 type=MessageType.AI,
-                content=llm_response,
-                user_id=user_id
+                content=llm_response
             )
-            reply_message = conversation_service.add_message(db, reply_in)
-            await store_message_embedding(reply_message, conversation_id)
+            reply_message_obj = await conversation_service.add_message(db, reply_in, user_id)
+            await store_message_embedding(reply_message_obj, conversation_id)
     except WebSocketDisconnect:
         pass
     except Exception as e:
