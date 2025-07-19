@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from app.config import settings
 from app.routers import auth
+from app.routers import conversations
 
 app = FastAPI(
     title=settings.app_name,
@@ -24,6 +25,7 @@ app.add_middleware(
 
 #routers
 app.include_router(auth.router)
+app.include_router(conversations.router)
 
 @app.get("/")
 async def root():

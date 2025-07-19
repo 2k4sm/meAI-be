@@ -9,7 +9,7 @@ from app.db.session import get_db
 from app.models.user import User
 from app.services.auth_service import create_access_token, create_refresh_token, verify_token, get_or_create_user, get_user_by_email
 
-router = APIRouter(prefix="/api/auth", tags=["authentication"])
+router = APIRouter(prefix="/auth", tags=["authentication"])
 
 oauth = OAuth()
 oauth.register(
