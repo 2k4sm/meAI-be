@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+websockets
+sqlalchemy
+alembic
+authlib
+python-jose[cryptography]
+pydantic-settings
