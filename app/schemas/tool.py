@@ -11,9 +11,10 @@ class ToolCallCreate(ToolCallBase):
     message_id: int
 
 class ToolCallInDBBase(ToolCallBase):
-    tool_call_id: int
+    tool_call_id: Optional[int] = None
     message_id: int
-    executed_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         orm_mode = True

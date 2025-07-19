@@ -9,8 +9,8 @@ class ConversationCreate(ConversationBase):
     pass
 
 class ConversationInDBBase(ConversationBase):
-    conversation_id: int
-    user_id: int
+    conversation_id: Optional[int] = None
+    user_id: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

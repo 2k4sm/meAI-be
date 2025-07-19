@@ -53,7 +53,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Authentication failed: {str(e)}")
 
 @router.get("/me")
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+async def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     """Get current user information"""
     payload = verify_token(token)
     if not payload:

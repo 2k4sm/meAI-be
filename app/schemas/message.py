@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import List
 from datetime import datetime
 from app.models.message import MessageType
 
@@ -9,13 +9,13 @@ class MessageBase(BaseModel):
 
 class MessageCreate(MessageBase):
     conversation_id: int
-    user_id: Optional[int] = None
+    user_id: int
 
 class MessageInDBBase(MessageBase):
     message_id: int
     conversation_id: int
-    user_id: Optional[int] = None
-    created_at: Optional[datetime] = None
+    user_id: int
+    created_at: datetime
 
     class Config:
         orm_mode = True
