@@ -1,0 +1,3 @@
+SYSTEM_PROMPT = "You are a helpful AI assistant."
+N_CONTEXT_MESSAGES = 6 
+M_SUMMARY_INTERVAL = 10
