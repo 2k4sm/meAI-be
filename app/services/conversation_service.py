@@ -47,7 +47,8 @@ async def add_message(db: Session, message_in: MessageCreate, user_id: int) -> M
         conversation = db.query(Conversation).filter(Conversation.conversation_id == message.conversation_id).first()
         if conversation:
             prev_summary = conversation.summary_text if conversation.summary_text else None
-            summary_text = await generate_summary_with_llm(last_msgs, previous_summary=prev_summary)
+            filtered_msgs = [m for m in last_msgs if m.type in ("Human", "AI")]
+            summary_text = await generate_summary_with_llm(filtered_msgs, previous_summary=prev_summary)
             conversation.summary_text = summary_text
             db.flush()
             db.commit()

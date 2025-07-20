@@ -94,7 +94,8 @@ async def conversation_ws(websocket: WebSocket, conversation_id: int, db: Sessio
                 content=user_message
             )
             message_obj = await conversation_service.add_message(db, message_in, user_id)
-            await store_message_embedding(message_obj, conversation_id)
+            if message_in.type in [MessageType.HUMAN, MessageType.AI]:
+                await store_message_embedding(message_obj, conversation_id)
             try:
                 context = await get_context_with_summary(db, conversation_id, user_message)
                 
@@ -126,7 +127,8 @@ async def conversation_ws(websocket: WebSocket, conversation_id: int, db: Sessio
                     content=llm_response
                 )
                 reply_message_obj = await conversation_service.add_message(db, reply_in, user_id)
-                await store_message_embedding(reply_message_obj, conversation_id)
+                if reply_in.type in [MessageType.HUMAN, MessageType.AI]:
+                    await store_message_embedding(reply_message_obj, conversation_id)
                 
                 for tool_msg in tool_messages:
                     tool_message_in = MessageCreate(
@@ -135,7 +137,7 @@ async def conversation_ws(websocket: WebSocket, conversation_id: int, db: Sessio
                         content=f"[{tool_msg['tool_name']}] {tool_msg['content']}"
                     )
                     tool_message_obj = await conversation_service.add_message(db, tool_message_in, user_id)
-                    await store_message_embedding(tool_message_obj, conversation_id)
+                    # Do NOT store embedding for tool messages
                     
             except Exception as e:
                 error_message = f"Error processing request: {str(e)}"
@@ -147,7 +149,8 @@ async def conversation_ws(websocket: WebSocket, conversation_id: int, db: Sessio
                     content=error_message
                 )
                 reply_message_obj = await conversation_service.add_message(db, reply_in, user_id)
-                await store_message_embedding(reply_message_obj, conversation_id)
+                if reply_in.type in [MessageType.HUMAN, MessageType.AI]:
+                    await store_message_embedding(reply_message_obj, conversation_id)
     except WebSocketDisconnect:
         pass
     except Exception as e:
