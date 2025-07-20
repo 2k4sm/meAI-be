@@ -4,12 +4,16 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_core.messages import HumanMessage, SystemMessage, BaseMessage, AIMessage
 from app.utils.message_utils import get_last_n_messages
 from app.utils.embedding_utils import add_message_embedding, query_similar_messages
+from chromadb.api.types import QueryResult
 from app.models.message import Message
 from app.models.conversation import Conversation
 from app.utils.type_utils import safe_str, safe_int
 from app.constants import SYSTEM_PROMPT, N_CONTEXT_MESSAGES
 from sqlalchemy.orm import Session
 from app.services.composio_service import composio_service
+import logging
+
+logger = logging.getLogger(__name__)
 
 model = init_chat_model("google_genai:gemini-2.0-flash")
 composio = composio_service.composio
@@ -52,14 +56,18 @@ async def store_message_embedding(message: Message, conversation_id: int):
     embedding = await get_embedding(content)
     add_message_embedding(message_id, content, embedding, conversation_id)
 
-async def stream_llm_response(prompt: str, context: List[str], db: Session, user_id: int) -> AsyncGenerator[str, None]:
+async def stream_llm_response(prompt: str, context: List[str], db: Session, user_id: int) -> AsyncGenerator[Dict[str, Any], None]:
     enabled_toolkits = composio_service.get_user_enabled_toolkits(db, user_id)
+
+    # noauth toolkits 
+    enabled_toolkits.extend(["COMPOSIO_SEARCH"])
     tools_list = composio.tools.get(user_id=str(user_id), toolkits=enabled_toolkits)
     
     model_with_tools = model
     if tools_list:
         model_with_tools = model.bind_tools(tools_list)
     
+    print(f"enabled_toolkits: {enabled_toolkits}")
     messages: List[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT)]
     if context:
         messages.append(HumanMessage(content="\n".join(context)))
@@ -72,24 +80,49 @@ async def stream_llm_response(prompt: str, context: List[str], db: Session, user
     
     if first_chunk:
         try:
-            response_dict = first_chunk.dict() if hasattr(first_chunk, 'dict') else {}
+            response_dict = first_chunk.model_dump() if hasattr(first_chunk, 'dict') else {}
             tool_calls = response_dict.get('tool_calls', [])
             
             if tool_calls:
                 tool_results = []
                 for tool_call in tool_calls:
                     try:
+                        # Stream tool execution status
+                        tool_name = tool_call["name"]
+                        yield {
+                            "type": "tool_start",
+                            "tool_name": tool_name,
+                            "content": f"\n\n🔧 **Executing {tool_name}...**\n\n"
+                        }
+                        
                         tool_result = composio.tools.execute(
                             tool_call['name'],
                             tool_call['args'],
                             user_id=str(user_id)
                         )
+                        
+                        # Stream completion status
+                        yield {
+                            "type": "tool_success",
+                            "tool_name": tool_name,
+                            "content": f"✅ **{tool_name} completed successfully**\n\n",
+                            "tool_result": str(tool_result)
+                        }
+                        
                         tool_results.append({
                             "tool_call_id": tool_call.get("id"),
                             "name": tool_call["name"],
                             "content": str(tool_result)
                         })
                     except Exception as e:
+                        # Stream error status
+                        yield {
+                            "type": "tool_error",
+                            "tool_name": tool_call["name"],
+                            "content": f"❌ **{tool_call['name']} failed: {str(e)}**\n\n",
+                            "error": str(e)
+                        }
+                        
                         tool_results.append({
                             "tool_call_id": tool_call.get("id"),
                             "name": tool_call["name"],
@@ -106,30 +139,30 @@ async def stream_llm_response(prompt: str, context: List[str], db: Session, user
                 
                 async for chunk in model_with_tools.astream(messages):
                     if isinstance(chunk.content, str):
-                        yield chunk.content
+                        yield {"type": "ai", "content": chunk.content}
                     elif isinstance(chunk.content, list):
                         for part in chunk.content:
                             if isinstance(part, str):
-                                yield part
+                                yield {"type": "ai", "content": part}
                             elif isinstance(part, dict) and "text" in part:
-                                yield part["text"]
+                                yield {"type": "ai", "content": part["text"]}
                     else:
-                        yield str(chunk.content)
+                        yield {"type": "ai", "content": str(chunk.content)}
                 return
         except Exception as e:
-            print(f"Error in stream_llm_response: {str(e)}")
+            logger.error(f"Error in stream_llm_response: {str(e)}")
     
     async for chunk in model_with_tools.astream(messages):
         if isinstance(chunk.content, str):
-            yield chunk.content
+            yield {"type": "ai", "content": chunk.content}
         elif isinstance(chunk.content, list):
             for part in chunk.content:
                 if isinstance(part, str):
-                    yield part
+                    yield {"type": "ai", "content": part}
                 elif isinstance(part, dict) and "text" in part:
-                    yield part["text"]
+                    yield {"type": "ai", "content": part["text"]}
         else:
-            yield str(chunk.content)
+            yield {"type": "ai", "content": str(chunk.content)}
 
 async def generate_summary_with_llm(messages: List[Message], previous_summary: Optional[str] = None) -> str:
     """
