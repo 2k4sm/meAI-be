@@ -1,5 +1,6 @@
 from typing import List, AsyncGenerator, Optional, Dict, Any
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain.chat_models import init_chat_model
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_core.messages import HumanMessage, SystemMessage, BaseMessage, AIMessage
 from app.utils.message_utils import get_last_n_messages
 from app.utils.embedding_utils import add_message_embedding, query_similar_messages
@@ -10,10 +11,9 @@ from app.constants import SYSTEM_PROMPT, N_CONTEXT_MESSAGES
 from sqlalchemy.orm import Session
 from app.services.composio_service import composio_service
 
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash",
-    convert_system_message_to_human=True
-)
+model = init_chat_model("google_genai:gemini-2.0-flash")
+composio = composio_service.composio
+
 embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-exp-03-07")
 
 async def get_embedding(text: str) -> List[float]:
@@ -54,17 +54,71 @@ async def store_message_embedding(message: Message, conversation_id: int):
 
 async def stream_llm_response(prompt: str, context: List[str], db: Session, user_id: int) -> AsyncGenerator[str, None]:
     enabled_toolkits = composio_service.get_user_enabled_toolkits(db, user_id)
-    tools = composio_service.get_tools_for_user(str(user_id), enabled_toolkits)
+    tools_list = composio.tools.get(user_id=str(user_id), toolkits=enabled_toolkits)
     
-    model_with_tools = llm
-    if tools:
-        tools_list = list(tools.values()) if isinstance(tools, dict) else tools
-        model_with_tools = llm.bind_tools(tools_list)
+    model_with_tools = model
+    if tools_list:
+        model_with_tools = model.bind_tools(tools_list)
     
     messages: List[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT)]
     if context:
         messages.append(HumanMessage(content="\n".join(context)))
     messages.append(HumanMessage(content=prompt))
+    
+    first_chunk = None
+    async for chunk in model_with_tools.astream(messages):
+        first_chunk = chunk
+        break
+    
+    if first_chunk:
+        try:
+            response_dict = first_chunk.dict() if hasattr(first_chunk, 'dict') else {}
+            tool_calls = response_dict.get('tool_calls', [])
+            
+            if tool_calls:
+                tool_results = []
+                for tool_call in tool_calls:
+                    try:
+                        tool_result = composio.tools.execute(
+                            tool_call['name'],
+                            tool_call['args'],
+                            user_id=str(user_id)
+                        )
+                        tool_results.append({
+                            "tool_call_id": tool_call.get("id"),
+                            "name": tool_call["name"],
+                            "content": str(tool_result)
+                        })
+                    except Exception as e:
+                        tool_results.append({
+                            "tool_call_id": tool_call.get("id"),
+                            "name": tool_call["name"],
+                            "content": f"Error executing tool: {str(e)}"
+                        })
+                
+                messages.append(first_chunk)
+                for tool_result in tool_results:
+                    from langchain_core.messages import ToolMessage
+                    messages.append(ToolMessage(
+                        content=tool_result["content"],
+                        tool_call_id=tool_result["tool_call_id"]
+                    ))
+                
+                async for chunk in model_with_tools.astream(messages):
+                    if isinstance(chunk.content, str):
+                        yield chunk.content
+                    elif isinstance(chunk.content, list):
+                        for part in chunk.content:
+                            if isinstance(part, str):
+                                yield part
+                            elif isinstance(part, dict) and "text" in part:
+                                yield part["text"]
+                    else:
+                        yield str(chunk.content)
+                return
+        except Exception as e:
+            print(f"Error in stream_llm_response: {str(e)}")
+    
     async for chunk in model_with_tools.astream(messages):
         if isinstance(chunk.content, str):
             yield chunk.content
@@ -74,6 +128,8 @@ async def stream_llm_response(prompt: str, context: List[str], db: Session, user
                     yield part
                 elif isinstance(part, dict) and "text" in part:
                     yield part["text"]
+        else:
+            yield str(chunk.content)
 
 async def generate_summary_with_llm(messages: List[Message], previous_summary: Optional[str] = None) -> str:
     """
@@ -90,7 +146,7 @@ async def generate_summary_with_llm(messages: List[Message], previous_summary: O
             "Summarize the following conversation messages in a concise way, capturing the main points and context for future reference. "
         )
     llm_messages: List[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=prompt)]
-    response = await llm.ainvoke(llm_messages)
+    response = await model.ainvoke(llm_messages)
     if isinstance(response, AIMessage):
         return str(response.content)
     elif isinstance(response, list):

@@ -65,17 +65,28 @@ async def conversation_ws(websocket: WebSocket, conversation_id: int, db: Sessio
             )
             message_obj = await conversation_service.add_message(db, message_in, user_id)
             await store_message_embedding(message_obj, conversation_id)
-            context = await get_context_with_summary(db, conversation_id, user_message)
-            llm_response = ""
-            async for chunk in stream_llm_response(user_message, context, db, user_id):
-                await websocket.send_json({"role": "assistant", "content": chunk})
-                llm_response += chunk
+            try:
+                context = await get_context_with_summary(db, conversation_id, user_message)
+                
+                llm_response = ""
+                async for chunk in stream_llm_response(user_message, context, db, user_id):
+                    await websocket.send_json({"role": "assistant", "content": chunk})
+                    llm_response += chunk
 
-            reply_in = MessageCreate(
-                conversation_id=conversation_id,
-                type=MessageType.AI,
-                content=llm_response
-            )
+                reply_in = MessageCreate(
+                    conversation_id=conversation_id,
+                    type=MessageType.AI,
+                    content=llm_response
+                )
+            except Exception as e:
+                error_message = f"Error processing request: {str(e)}"
+                await websocket.send_json({"role": "assistant", "content": error_message})
+                
+                reply_in = MessageCreate(
+                    conversation_id=conversation_id,
+                    type=MessageType.AI,
+                    content=error_message
+                )
             reply_message_obj = await conversation_service.add_message(db, reply_in, user_id)
             await store_message_embedding(reply_message_obj, conversation_id)
     except WebSocketDisconnect:
