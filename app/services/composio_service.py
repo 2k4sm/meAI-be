@@ -72,13 +72,6 @@ class ComposioService:
             callback_url=redirect_url
         )
 
-    def wait_for_connection(self, connection_request_id: str):
-        """Wait for connection to be established."""
-        return self.composio.connected_accounts.wait_for_connection(connection_request_id)
-    
-    def get_connected_account(self, connection_request_id: str):
-        """Get connected account by connection request id."""
-        return self.composio.connected_accounts.get(connection_request_id)
 
     def set_toolkit_connection_status(self, db: Session, user_id: int, toolkit_slug: str, status: ConnectionStatus, connected_account_id: Optional[str] = None, error_message: Optional[str] = None, connection_request_id: Optional[str] = None) -> bool:
         """Set toolkit connection status for a user."""
@@ -166,7 +159,6 @@ class ComposioService:
             ).first()
             
             if not connection:
-                print(f"No database record found for connection_request_id: {connection_request_id}")
                 return False
             
             composio_status = connected_account.status.upper()
