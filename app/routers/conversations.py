@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, status, WebSocket, WebSocketDisconnect
-from app.utils.auth_utils import verify_token
+from fastapi import APIRouter, Depends, status, WebSocket, WebSocketDisconnect, Cookie
+from typing import Optional
+from app.utils.auth_utils import verify_session_token
 from app.services.auth_service import get_user_by_email
 from sqlalchemy.orm import Session
 from app.db.session import get_db
@@ -10,6 +11,7 @@ from app.services import conversation_service
 from app.services.llm_service import stream_llm_response, store_message_embedding, get_context_with_summary, classify_tool_intent_with_llm
 from app.models.message import MessageType
 from app.utils.embedding_utils import delete_message_embedding, delete_conversation_embeddings
+from app.config import settings
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
@@ -57,16 +59,19 @@ def delete_message(conversation_id: int, message_id: int, db: Session = Depends(
         return {"error": f"Failed to delete message: {str(e)}"}, 500
 
 @router.websocket("/{conversation_id}/stream")
-async def conversation_ws(websocket: WebSocket, conversation_id: int, db: Session = Depends(get_db)):
+async def conversation_ws(
+    websocket: WebSocket, 
+    conversation_id: int, 
+    db: Session = Depends(get_db),
+    session: Optional[str] = Cookie(None, alias=settings.cookie_name)
+):
     await websocket.accept()
     try:
-        token = websocket.headers.get('authorization')
-        if not token or not token.lower().startswith('bearer '):
+        if not session:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
-        token_value = token[7:]
-        payload = verify_token(token_value)
+        payload = verify_session_token(session)
         if not payload:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
@@ -140,8 +145,7 @@ async def conversation_ws(websocket: WebSocket, conversation_id: int, db: Sessio
                         type=MessageType.TOOL,
                         content=f"[{tool_msg['tool_name']}] {tool_msg['content']}"
                     )
-                    tool_message_obj = await conversation_service.add_message(db, tool_message_in, user_id)
-                    # Do NOT store embedding for tool messages
+                    await conversation_service.add_message(db, tool_message_in, user_id)
                     
             except Exception as e:
                 error_message = f"Error processing request: {str(e)}"

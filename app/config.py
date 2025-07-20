@@ -1,18 +1,20 @@
 from typing import List, Optional
 from pydantic_settings import BaseSettings
+import os
+import json
 
 class Settings(BaseSettings):
-    app_name: str = "meAI Backend"
-    app_version: str = "1.0.0"
-    debug: bool = True
-    environment: str = "development"
+    app_name: str = ""
+    app_version: str = ""
+    debug: bool = False
+    environment: str = ""
 
     database_url: str = ""
     postgres_user: str = ""
     postgres_password: str = ""
     postgres_db: str = ""
 
-    chroma_host: str = "meAI-chromadb"
+    chroma_host: str = ""
     chroma_port: int = 8000
 
     google_client_id: str = ""
@@ -31,7 +33,6 @@ class Settings(BaseSettings):
 
     composio_api_key: str = ""
     
-    # Auth Config IDs for Composio toolkits
     google_calendar_auth_config_id: str = ""
     notion_auth_config_id: str = ""
     google_drive_auth_config_id: str = ""
@@ -39,9 +40,18 @@ class Settings(BaseSettings):
     composio_search_auth_config_id: str = ""
     google_tasks_auth_config_id: str = ""
 
-    allowed_origins: List[str] = ["http://localhost:8080"]
+    allowed_origins: List[str] = json.loads(os.getenv("ALLOWED_ORIGINS", "[]"))
 
     secret_key: str = ""
+
+    cookie_name: str = ""
+    cookie_max_age: int = 86400 * 7
+    cookie_path: str = ""
+    cookie_domain: Optional[str] = None
+    cookie_secure: bool = True
+    cookie_httponly: bool = True
+    cookie_samesite: str = ""
+    frontend_url: str = "http://localhost:3000"
 
     class Config:
         env_file = ".env"

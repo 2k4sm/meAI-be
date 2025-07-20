@@ -1,15 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse
-from fastapi.security import OAuth2PasswordBearer
+from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from authlib.integrations.starlette_client import OAuth
 from starlette.requests import Request
 from app.config import settings
 from app.db.session import get_db
 from app.models.user import User
-from app.utils.auth_utils import create_access_token, create_refresh_token, verify_token
 from app.services.auth_service import get_or_create_user, get_user_by_email
 from app.schemas.user import UserRead
+from app.utils.auth_utils import create_session_token, verify_session_token
+from typing import Optional
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -22,7 +22,17 @@ oauth.register(
     client_kwargs={"scope": "openid email profile"},
 )
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+async def get_current_user(request: Request, db: Session = Depends(get_db)) -> Optional[User]:
+    """Get current user from session cookie"""
+    session_token = request.cookies.get(settings.cookie_name)
+    if not session_token:
+        return None
+    
+    payload = verify_session_token(session_token)
+    if not payload:
+        return None
+    
+    return get_user_by_email(db, payload["sub"])
 
 @router.get("/google")
 async def google(request: Request):
@@ -40,89 +50,38 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
             raise HTTPException(status_code=400, detail="Invalid Google response")
 
         user = get_or_create_user(db, userinfo)
+        session_token = create_session_token({"sub": user.email})
         
-        refresh_token = create_refresh_token({"sub": user.email})
-        setattr(user, 'refresh_token', refresh_token)
-        db.commit()
-
-        access_token = create_access_token({"sub": user.email})
-        return JSONResponse({
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "token_type": "bearer"
-        })
+        response = RedirectResponse(url=settings.frontend_url)
+        response.set_cookie(
+            key=settings.cookie_name,
+            value=session_token,
+            max_age=settings.cookie_max_age,
+            path=settings.cookie_path,
+            domain=settings.cookie_domain,
+            secure=settings.cookie_secure,
+            httponly=settings.cookie_httponly,
+            samesite=settings.cookie_samesite
+        )
+        
+        return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Authentication failed: {str(e)}")
 
 @router.get("/me", response_model=UserRead)
-async def me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+async def me(user: User = Depends(get_current_user)):
     """Get current user information"""
-    payload = verify_token(token)
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    
-    user = get_user_by_email(db, payload["sub"])
     if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-    
+        raise HTTPException(status_code=401, detail="Not authenticated")
     return UserRead.model_validate(user)
 
-@router.post("/refresh")
-async def refresh_token(request: Request, db: Session = Depends(get_db)):
-    """Refresh access token using refresh token"""
-    try:
-        data = await request.json()
-        token = data.get("refresh_token")
-        if not token:
-            raise HTTPException(status_code=400, detail="Refresh token required")
-        
-        payload = verify_token(token)
-        if not payload:
-            raise HTTPException(status_code=401, detail="Invalid refresh token")
-        
-        user = db.query(User).filter(User.email == payload["sub"], User.refresh_token == token).first()
-        if not user:
-            raise HTTPException(status_code=401, detail="Token revoked")
-        
-        access_token = create_access_token({"sub": user.email})
-        return {"access_token": access_token, "token_type": "bearer"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Token refresh failed: {str(e)}")
-
 @router.post("/logout")
-async def logout(request: Request,db: Session = Depends(get_db),token: str = Depends(oauth2_scheme)):
-    """Logout user by invalidating refresh token"""
-    try:
-        payload = verify_token(token)
-        if not payload:
-            raise HTTPException(status_code=401, detail="Invalid access token")
-        
-        data = await request.json()
-        refresh_token = data.get("refresh_token")
-        if not refresh_token:
-            raise HTTPException(status_code=400, detail="Refresh token required for logout")
-        
-        refresh_payload = verify_token(refresh_token)
-        if not refresh_payload:
-            raise HTTPException(status_code=401, detail="Invalid refresh token")
-        
-        if payload["sub"] != refresh_payload["sub"]:
-            raise HTTPException(status_code=401, detail="Token subject mismatch")
-        
-        user = get_user_by_email(db, payload["sub"])
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
-        
-        if user.refresh_token != refresh_token:
-            raise HTTPException(status_code=401, detail="Refresh token does not match")
-        
-        setattr(user, 'refresh_token', None)
-        db.commit()
-        
-        return {"message": "Successfully logged out"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Logout failed: {str(e)}")
+async def logout():
+    """Logout user by clearing the session cookie"""
+    response = JSONResponse({"message": "Successfully logged out"})
+    response.delete_cookie(
+        key=settings.cookie_name,
+        path=settings.cookie_path,
+        domain=settings.cookie_domain,
+    )
+    return response
