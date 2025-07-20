@@ -1,4 +1,4 @@
-from typing import List, AsyncGenerator, Optional
+from typing import List, AsyncGenerator, Optional, Dict, Any
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_core.messages import HumanMessage, SystemMessage, BaseMessage, AIMessage
 from app.utils.message_utils import get_last_n_messages
@@ -8,6 +8,7 @@ from app.models.conversation import Conversation
 from app.utils.type_utils import safe_str, safe_int
 from app.constants import SYSTEM_PROMPT, N_CONTEXT_MESSAGES
 from sqlalchemy.orm import Session
+from app.services.composio_service import composio_service
 
 llm = ChatGoogleGenerativeAI(
     model="gemini-2.0-flash",
@@ -51,12 +52,20 @@ async def store_message_embedding(message: Message, conversation_id: int):
     embedding = await get_embedding(content)
     add_message_embedding(message_id, content, embedding, conversation_id)
 
-async def stream_llm_response(prompt: str, context: List[str]) -> AsyncGenerator[str, None]:
+async def stream_llm_response(prompt: str, context: List[str], db: Session, user_id: int) -> AsyncGenerator[str, None]:
+    enabled_toolkits = composio_service.get_user_enabled_toolkits(db, user_id)
+    tools = composio_service.get_tools_for_user(str(user_id), enabled_toolkits)
+    
+    model_with_tools = llm
+    if tools:
+        tools_list = list(tools.values()) if isinstance(tools, dict) else tools
+        model_with_tools = llm.bind_tools(tools_list)
+    
     messages: List[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT)]
     if context:
         messages.append(HumanMessage(content="\n".join(context)))
     messages.append(HumanMessage(content=prompt))
-    async for chunk in llm.astream(messages):
+    async for chunk in model_with_tools.astream(messages):
         if isinstance(chunk.content, str):
             yield chunk.content
         elif isinstance(chunk.content, list):

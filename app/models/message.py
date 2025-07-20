@@ -24,4 +24,3 @@ class Message(Base):
 
     conversation = relationship("Conversation", back_populates="messages")
     user = relationship("User", back_populates="messages")
-    tool_call = relationship("ToolCall", back_populates="message", uselist=False, cascade="all, delete-orphan")
