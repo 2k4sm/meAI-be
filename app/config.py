@@ -25,7 +25,9 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
 
     google_api_key: str = ""
-    google_gemini_model: str = "gemini-pro"
+    openai_api_key: str = ""
+
+    model : str = ""
 
     composio_api_key: str = ""
     

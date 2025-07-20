@@ -1,6 +1,7 @@
 from typing import List, AsyncGenerator, Optional, Dict, Any
 from langchain.chat_models import init_chat_model
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain_core.messages import HumanMessage, SystemMessage, BaseMessage, AIMessage
 from app.utils.message_utils import get_last_n_messages
 from app.utils.embedding_utils import add_message_embedding, query_similar_messages
@@ -10,15 +11,30 @@ from app.models.conversation import Conversation
 from app.utils.type_utils import safe_str, safe_int
 from app.constants import SYSTEM_PROMPT, N_CONTEXT_MESSAGES
 from sqlalchemy.orm import Session
+from app.config import settings
 from app.services.composio_service import composio_service
 import logging
 
+composio = composio_service.composio
 logger = logging.getLogger(__name__)
 
-model = init_chat_model("google_genai:gemini-2.0-flash")
-composio = composio_service.composio
+def get_model_and_embeddings():
+    """
+    Initialize and return the chat model and embeddings based on the settings.model value.
+    """
+    model_name = settings.model.lower()
+    if model_name == "gemini":
+        chat_model = init_chat_model("google_genai:gemini-2.0-flash")
+        embedding_model = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-exp-03-07")
+    elif model_name == "openai":
+        chat_model = init_chat_model("openai:gpt-4o-mini")
+        embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
+    else:
+        raise ValueError(f"Invalid model: {settings.model}")
+    return chat_model, embedding_model
 
-embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-exp-03-07")
+model, embeddings = get_model_and_embeddings()
+
 
 async def get_embedding(text: str) -> List[float]:
     return embeddings.embed_query(safe_str(text))
@@ -60,8 +76,8 @@ async def stream_llm_response(prompt: str, context: List[str], db: Session, user
     enabled_toolkits = composio_service.get_user_enabled_toolkits(db, user_id)
 
     # noauth toolkits 
-    enabled_toolkits.extend(["COMPOSIO_SEARCH"])
     tools_list = composio.tools.get(user_id=str(user_id), toolkits=enabled_toolkits)
+    tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_LLM_SEARCH", "COMPOSIO_SIMILARLINKS", "COMPOSIO_NEWS_SEARCH", "COMPOSIO_GOOGLE_SEARCH", "COMPOSIO_FINANCE_SEARCH"]))
     
     model_with_tools = model
     if tools_list:
