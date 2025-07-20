@@ -31,9 +31,11 @@ class Settings(BaseSettings):
     
     # Auth Config IDs for Composio toolkits
     google_calendar_auth_config_id: str = ""
-    google_tasks_auth_config_id: str = ""
+    notion_auth_config_id: str = ""
     google_drive_auth_config_id: str = ""
     gmail_auth_config_id: str = ""
+    composio_search_auth_config_id: str = ""
+    google_tasks_auth_config_id: str = ""
 
     allowed_origins: List[str] = ["http://localhost:3000"]
 
