@@ -20,4 +20,4 @@ class User(Base):
 
     conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
     messages = relationship("Message", back_populates="user", cascade="all, delete-orphan")
-    tool_preferences = relationship("UserToolPreference", back_populates="user", cascade="all, delete-orphan")
+    toolkit_connections = relationship("UserToolkitConnection", back_populates="user", cascade="all, delete-orphan")

@@ -1,6 +1,6 @@
 from .user import User
 from .conversation import Conversation
 from .message import Message, MessageType
-from .user_tool_preference import UserToolPreference
+from .user_toolkit_connection import UserToolkitConnection, ConnectionStatus
 
-__all__ = ["User", "Conversation", "Message", "MessageType", "UserToolPreference"]
+__all__ = ["User", "Conversation", "Message", "MessageType", "UserToolkitConnection", "ConnectionStatus"]
