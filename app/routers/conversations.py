@@ -88,7 +88,6 @@ async def conversation_ws(websocket: WebSocket, conversation_id: int, db: Sessio
             user_message = data.get('content')
             if not user_message:
                 continue
-            # Classify tool intent
             slug = await classify_tool_intent_with_llm(user_message)
             print(f"slug: {slug}")
             message_in = MessageCreate(
@@ -123,6 +122,8 @@ async def conversation_ws(websocket: WebSocket, conversation_id: int, db: Sessio
                             "content": tool_content,
                             "type": chunk["type"]
                         })
+                
+                await websocket.send_json({"last_chunk": True})
 
                 reply_in = MessageCreate(
                     conversation_id=conversation_id,
@@ -153,7 +154,7 @@ async def conversation_ws(websocket: WebSocket, conversation_id: int, db: Sessio
                 )
                 reply_message_obj = await conversation_service.add_message(db, reply_in, user_id)
                 if reply_in.type in [MessageType.HUMAN, MessageType.AI]:
-                    await store_message_embedding(reply_message_obj, conversation_id)
+                    await store_message_embedding(reply_message_obj, conversation_id)  
     except WebSocketDisconnect:
         pass
     except Exception as e:
