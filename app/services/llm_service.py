@@ -69,21 +69,33 @@ async def get_context_with_summary(db: Session, conversation_id: int, user_messa
 async def store_message_embedding(message: Message, conversation_id: int):
     message_id = safe_int(getattr(message, 'message_id', None))
     content = safe_str(getattr(message, 'content', None))
-    embedding = await get_embedding(content)
-    add_message_embedding(message_id, content, embedding, conversation_id)
+    try:
+        embedding = await get_embedding(content)
+        add_message_embedding(message_id, content, embedding, conversation_id)
+    except Exception as embed_error:
+        logger.error(f"Embedding error for message {message_id} in conversation {conversation_id}: {embed_error}")
 
-async def stream_llm_response(prompt: str, context: List[str], db: Session, user_id: int) -> AsyncGenerator[Dict[str, Any], None]:
+async def stream_llm_response(prompt: str, context: List[str], db: Session, user_id: int, slug: str) -> AsyncGenerator[Dict[str, Any], None]:
     enabled_toolkits = composio_service.get_user_enabled_toolkits(db, user_id)
 
-    # noauth toolkits 
-    tools_list = composio.tools.get(user_id=str(user_id), toolkits=enabled_toolkits)
-    tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_LLM_SEARCH", "COMPOSIO_SIMILARLINKS", "COMPOSIO_NEWS_SEARCH", "COMPOSIO_GOOGLE_SEARCH", "COMPOSIO_FINANCE_SEARCH"]))
+    tools_list = []
+
+    if slug != "NOTOOL":
+        toolkit_tools = composio.tools.get(user_id=str(user_id), toolkits=[slug])
+        if toolkit_tools:
+            tools_list.extend(toolkit_tools)
     
+    tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_DUCK_DUCK_GO_SEARCH"]))
+    tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_EXA_SIMILARLINKS"]))
+    tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_NEWS_SEARCH"]))
+    tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_SEARCH"]))
+
     model_with_tools = model
     if tools_list:
         model_with_tools = model.bind_tools(tools_list)
     
     print(f"enabled_toolkits: {enabled_toolkits}")
+    print(f"tools_list: {tools_list}")
     messages: List[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT)]
     if context:
         messages.append(HumanMessage(content="\n".join(context)))
@@ -108,7 +120,7 @@ async def stream_llm_response(prompt: str, context: List[str], db: Session, user
                         yield {
                             "type": "tool_start",
                             "tool_name": tool_name,
-                            "content": f"\n\n🔧 **Executing {tool_name}...**\n\n"
+                            "content": f"\n\n**Executing {tool_name}...**\n\n"
                         }
                         
                         tool_result = composio.tools.execute(
@@ -117,11 +129,10 @@ async def stream_llm_response(prompt: str, context: List[str], db: Session, user
                             user_id=str(user_id)
                         )
                         
-                        # Stream completion status
                         yield {
                             "type": "tool_success",
                             "tool_name": tool_name,
-                            "content": f"✅ **{tool_name} completed successfully**\n\n",
+                            "content": f"**{tool_name} completed successfully**\n\n",
                             "tool_result": str(tool_result)
                         }
                         
@@ -131,11 +142,10 @@ async def stream_llm_response(prompt: str, context: List[str], db: Session, user
                             "content": str(tool_result)
                         })
                     except Exception as e:
-                        # Stream error status
                         yield {
                             "type": "tool_error",
                             "tool_name": tool_call["name"],
-                            "content": f"❌ **{tool_call['name']} failed: {str(e)}**\n\n",
+                            "content": f"**{tool_call['name']} failed: {str(e)}**\n\n",
                             "error": str(e)
                         }
                         
@@ -209,3 +219,33 @@ async def generate_summary_with_llm(messages: List[Message], previous_summary: O
     elif hasattr(response, "content"):
         return str(response.content)
     return str(response)
+
+
+async def classify_tool_intent_with_llm(user_message: str) -> str:
+    """
+    Use the LLM to classify the user message into one of the allowed tool intent slugs.
+    Returns the slug as a string (e.g., "GOOGLETASKS").
+    """
+    allowed_slugs = composio_service.get_supported_toolkits()
+    allowed_slugs_str = ", ".join(allowed_slugs)
+    prompt = (
+        f"Classify the following user message into only one of these intent slugs:"
+        f"{allowed_slugs_str}, NOTOOL"
+        "Return only the slug as a string, nothing else.\n\n"
+        f"User message: {user_message}"
+    )
+
+    print(f"prompt: {prompt}")
+    llm_messages: List[BaseMessage] = [SystemMessage(content=prompt), HumanMessage(content=user_message)]
+    response = await model.ainvoke(llm_messages)
+    if isinstance(response, AIMessage):
+        slug = str(response.content).strip()
+    elif hasattr(response, "content"):
+        slug = str(response.content).strip()
+    elif isinstance(response, str):
+        slug = response.strip()
+    else:
+        slug = str(response).strip()
+    if slug not in allowed_slugs:
+        slug = "NOTOOL"
+    return slug

@@ -26,6 +26,10 @@ class ComposioService:
             "GMAIL": settings.gmail_auth_config_id,
             "GOOGLETASKS": settings.google_tasks_auth_config_id,
         }
+        
+    def get_supported_toolkits(self) -> List[str]:
+        """Get list of supported toolkit slugs."""
+        return self._supported_toolkits
 
     def get_tools_for_user(self, user_id: str, toolkit_slugs: List[str]) -> List[Any]:
         """Get tools for a user from specified toolkits."""

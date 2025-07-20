@@ -7,7 +7,7 @@ from app.dependencies import get_current_user
 from app.schemas.conversation import ConversationRead, ConversationCreate, ConversationList
 from app.schemas.message import MessageList, MessageCreate
 from app.services import conversation_service
-from app.services.llm_service import stream_llm_response, store_message_embedding, get_context_with_summary
+from app.services.llm_service import stream_llm_response, store_message_embedding, get_context_with_summary, classify_tool_intent_with_llm
 from app.models.message import MessageType
 from app.utils.embedding_utils import delete_message_embedding, delete_conversation_embeddings
 
@@ -88,6 +88,9 @@ async def conversation_ws(websocket: WebSocket, conversation_id: int, db: Sessio
             user_message = data.get('content')
             if not user_message:
                 continue
+            # Classify tool intent
+            slug = await classify_tool_intent_with_llm(user_message)
+            print(f"slug: {slug}")
             message_in = MessageCreate(
                 conversation_id=conversation_id,
                 type=MessageType.HUMAN,
@@ -102,7 +105,7 @@ async def conversation_ws(websocket: WebSocket, conversation_id: int, db: Sessio
                 llm_response = ""
                 tool_messages = []
                 
-                async for chunk in stream_llm_response(user_message, context, db, user_id):
+                async for chunk in stream_llm_response(user_message, context, db, user_id, slug):
                     if chunk["type"] == "ai":
                         await websocket.send_json({"role": "assistant", "content": chunk["content"]})
                         llm_response += chunk["content"]

@@ -1,3 +1,5 @@
+N_CONTEXT_MESSAGES = 5
+M_SUMMARY_INTERVAL = 10
 SYSTEM_PROMPT = """
 You are **meAI**, an intelligent, reliable personal assistant. You help the user stay productive, organized, and in control by using the following authorized Composio tools:
 
@@ -102,5 +104,3 @@ Use this to:
    - Offer suggestions when appropriate (for example, time blocking).  
    - Do not overstep or guess beyond reasonable interpretation.
 """
-N_CONTEXT_MESSAGES = 6 
-M_SUMMARY_INTERVAL = 10
