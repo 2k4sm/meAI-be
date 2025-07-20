@@ -9,6 +9,7 @@ from app.schemas.message import MessageList, MessageCreate
 from app.services import conversation_service
 from app.services.llm_service import stream_llm_response, store_message_embedding, get_context_with_summary
 from app.models.message import MessageType
+from app.utils.embedding_utils import delete_message_embedding, delete_conversation_embeddings
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
@@ -26,6 +27,34 @@ def create_conversation(conversation_in: ConversationCreate, db: Session = Depen
 def get_conversation_messages(conversation_id: int, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     messages = conversation_service.get_messages(db, conversation_id=conversation_id, user_id=current_user.user_id)
     return {"messages": messages}
+
+@router.delete("/{conversation_id}")
+def delete_conversation(conversation_id: int, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+    try:
+        conversation = conversation_service.get_conversation(db, conversation_id, current_user.user_id)
+        if not conversation:
+            return {"error": "Conversation not found"}, 404
+        
+        conversation_service.delete_conversation(db, conversation_id, current_user.user_id)
+        delete_conversation_embeddings(conversation_id)
+        
+        return {"message": "Conversation deleted successfully"}
+    except Exception as e:
+        return {"error": f"Failed to delete conversation: {str(e)}"}, 500
+
+@router.delete("/{conversation_id}/messages/{message_id}")
+def delete_message(conversation_id: int, message_id: int, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+    try:
+        message = conversation_service.get_message(db, message_id, conversation_id, current_user.user_id)
+        if not message:
+            return {"error": "Message not found"}, 404
+        
+        conversation_service.delete_message(db, message_id, conversation_id, current_user.user_id)
+        delete_message_embedding(message_id)
+        
+        return {"message": "Message deleted successfully"}
+    except Exception as e:
+        return {"error": f"Failed to delete message: {str(e)}"}, 500
 
 @router.websocket("/{conversation_id}/stream")
 async def conversation_ws(websocket: WebSocket, conversation_id: int, db: Session = Depends(get_db)):

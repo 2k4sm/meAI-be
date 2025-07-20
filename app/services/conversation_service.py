@@ -53,3 +53,35 @@ async def add_message(db: Session, message_in: MessageCreate, user_id: int) -> M
             db.commit()
 
     return message
+
+def get_message(db: Session, message_id: int, conversation_id: int, user_id: int) -> Optional[MessageRead]:
+    message = db.query(Message).join(Conversation).filter(
+        Message.message_id == message_id,
+        Message.conversation_id == conversation_id,
+        Conversation.user_id == user_id
+    ).first()
+    return MessageRead.model_validate(message) if message else None
+
+def delete_message(db: Session, message_id: int, conversation_id: int, user_id: int) -> bool:
+    message = db.query(Message).join(Conversation).filter(
+        Message.message_id == message_id,
+        Message.conversation_id == conversation_id,
+        Conversation.user_id == user_id
+    ).first()
+    if message:
+        db.delete(message)
+        db.commit()
+        return True
+    return False
+
+def delete_conversation(db: Session, conversation_id: int, user_id: int) -> bool:
+    conversation = db.query(Conversation).filter(
+        Conversation.conversation_id == conversation_id,
+        Conversation.user_id == user_id
+    ).first()
+    if conversation:
+        db.query(Message).filter(Message.conversation_id == conversation_id).delete()
+        db.delete(conversation)
+        db.commit()
+        return True
+    return False
