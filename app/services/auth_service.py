@@ -1,9 +1,7 @@
 from datetime import datetime
 from typing import Optional
 from sqlalchemy.orm import Session
-from app.utils.auth_utils import create_access_token, create_refresh_token, verify_token
 from app.models.user import User
-
 
 def get_or_create_user(db: Session, userinfo: dict) -> User:
     """Get existing user or create new user from Google OAuth data"""

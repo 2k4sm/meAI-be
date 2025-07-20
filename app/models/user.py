@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, String, DateTime, Boolean
+from sqlalchemy import Integer, String, DateTime
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from app.db.session import Base

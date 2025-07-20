@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
-from app.routers.auth import verify_token, get_user_by_email
+from fastapi import APIRouter, Depends, status, WebSocket, WebSocketDisconnect
+from app.utils.auth_utils import verify_token
+from app.services.auth_service import get_user_by_email
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.dependencies import get_current_user
 from app.schemas.conversation import ConversationRead, ConversationCreate, ConversationList
-from app.schemas.message import MessageRead, MessageList, MessageCreate
+from app.schemas.message import MessageList, MessageCreate
 from app.services import conversation_service
 from app.services.llm_service import stream_llm_response, store_message_embedding, get_context_with_summary
 from app.models.message import MessageType
@@ -69,15 +70,44 @@ async def conversation_ws(websocket: WebSocket, conversation_id: int, db: Sessio
                 context = await get_context_with_summary(db, conversation_id, user_message)
                 
                 llm_response = ""
+                tool_messages = []
+                
                 async for chunk in stream_llm_response(user_message, context, db, user_id):
-                    await websocket.send_json({"role": "assistant", "content": chunk})
-                    llm_response += chunk
+                    if chunk["type"] == "ai":
+                        await websocket.send_json({"role": "assistant", "content": chunk["content"]})
+                        llm_response += chunk["content"]
+                    elif chunk["type"] in ["tool_start", "tool_success", "tool_error"]:
+                        await websocket.send_json({"role": "tool", "content": chunk["content"]})
+
+                        tool_content = chunk["content"]
+                        if chunk["type"] == "tool_success" and "tool_result" in chunk:
+                            tool_content += f"\nResult: {chunk['tool_result']}"
+                        elif chunk["type"] == "tool_error" and "error" in chunk:
+                            tool_content += f"\nError: {chunk['error']}"
+                        
+                        tool_messages.append({
+                            "tool_name": chunk["tool_name"],
+                            "content": tool_content,
+                            "type": chunk["type"]
+                        })
 
                 reply_in = MessageCreate(
                     conversation_id=conversation_id,
                     type=MessageType.AI,
                     content=llm_response
                 )
+                reply_message_obj = await conversation_service.add_message(db, reply_in, user_id)
+                await store_message_embedding(reply_message_obj, conversation_id)
+                
+                for tool_msg in tool_messages:
+                    tool_message_in = MessageCreate(
+                        conversation_id=conversation_id,
+                        type=MessageType.TOOL,
+                        content=f"[{tool_msg['tool_name']}] {tool_msg['content']}"
+                    )
+                    tool_message_obj = await conversation_service.add_message(db, tool_message_in, user_id)
+                    await store_message_embedding(tool_message_obj, conversation_id)
+                    
             except Exception as e:
                 error_message = f"Error processing request: {str(e)}"
                 await websocket.send_json({"role": "assistant", "content": error_message})
@@ -87,8 +117,8 @@ async def conversation_ws(websocket: WebSocket, conversation_id: int, db: Sessio
                     type=MessageType.AI,
                     content=error_message
                 )
-            reply_message_obj = await conversation_service.add_message(db, reply_in, user_id)
-            await store_message_embedding(reply_message_obj, conversation_id)
+                reply_message_obj = await conversation_service.add_message(db, reply_in, user_id)
+                await store_message_embedding(reply_message_obj, conversation_id)
     except WebSocketDisconnect:
         pass
     except Exception as e:
