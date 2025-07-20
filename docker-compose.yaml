@@ -10,9 +10,9 @@ services:
       - meai-db
       - meai-chromadb
     ports:
-      - "3000:3000"
+      - "8080:8080"
     expose:
-      - 3000
+      - 8080
 
   meai-db:
     image: postgres:15

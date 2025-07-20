@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     composio_search_auth_config_id: str = ""
     google_tasks_auth_config_id: str = ""
 
-    allowed_origins: List[str] = ["http://localhost:3000"]
+    allowed_origins: List[str] = ["http://localhost:8080"]
 
     secret_key: str = ""
 
