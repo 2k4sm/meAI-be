@@ -1,7 +1,6 @@
 from typing import List, Optional
 from pydantic_settings import BaseSettings
 import os
-import json
 
 class Settings(BaseSettings):
     app_name: str = ""
@@ -40,7 +39,7 @@ class Settings(BaseSettings):
     composio_search_auth_config_id: str = ""
     google_tasks_auth_config_id: str = ""
 
-    allowed_origins: List[str] = json.loads(os.getenv("ALLOWED_ORIGINS", "[]"))
+    allowed_origin: Optional[str] = "*"
 
     secret_key: str = ""
 
@@ -51,7 +50,7 @@ class Settings(BaseSettings):
     cookie_secure: bool = True
     cookie_httponly: bool = True
     cookie_samesite: str = ""
-    frontend_url: str = "http://localhost:3000"
+    frontend_url: str = "http://localhost:5173"
 
     class Config:
         env_file = ".env"
