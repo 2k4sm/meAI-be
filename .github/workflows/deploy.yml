@@ -1,0 +1,46 @@
+name: Build & Deploy
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: "deploy-main"
+      cancel-in-progress: true
+
+    steps:
+      - name: Deploy FastAPI app via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          key:  ${{ secrets.SSH_KEY }}
+          username: ${{ secrets.SSH_USERNAME }}
+          script: |
+            set -e
+            APP_DIR="$HOME/meai-be"
+            # Clone or pull
+            if [ ! -d "$APP_DIR" ]; then
+              git clone --branch main git@github.com:${{ github.repository }}.git "$APP_DIR"
+            fi
+            cd "$APP_DIR"
+            git fetch origin main
+            git reset --hard origin/main
+            export $(grep -v '^#' .env | xargs)
+            # Setup Python venv & install
+            python3 -m venv venv
+            source venv/bin/activate
+            pip install --upgrade pip
+            pip install -r requirements.txt
+            # Start or update ChromaDB service
+            if [ -f docker-compose.yml ]; then
+              docker compose up -d meai-chromadb
+            fi
+            # PM2: start or reload using ecosystem file
+            if pm2 list | grep -q "meai-be"; then
+              pm2 reload meai-be
+            else
+              pm2 start uvicorn --name meai-be --interpreter python3 -- app.main:app --host 127.0.0.1 --port 8001
+            fi
+            pm2 save
