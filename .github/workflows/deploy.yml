@@ -39,7 +39,7 @@ jobs:
             fi
             # PM2: start or reload using ecosystem file
             if pm2 list | grep -q "meai-be"; then
-              pm2 reload meai-be
+              pm2 reload meai-be --update-env
             else
               pm2 start uvicorn --name meai-be --interpreter python3 -- app.main:app --host 127.0.0.1 --port 8001
             fi
