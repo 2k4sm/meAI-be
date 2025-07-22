@@ -108,6 +108,7 @@ async def stream_llm_response(prompt: str, context: List[str], db: Session, user
     tool_call_history = set()
     while cycles < max_tool_llm_cycles:
         cycles += 1
+        print(f"[stream_llm_response] Cycle: {cycles} / {max_tool_llm_cycles}")
         first_chunk = None
         async for chunk in model_with_tools.astream(messages):
             first_chunk = chunk
