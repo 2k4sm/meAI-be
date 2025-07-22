@@ -26,6 +26,8 @@ def get_or_create_user(db: Session, userinfo: dict) -> User:
         last_login=datetime.now(timezone.utc)
     )
     db.add(user)
+    db.commit()
+    db.refresh(user)
     return user
 
 
