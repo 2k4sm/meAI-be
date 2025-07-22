@@ -12,32 +12,9 @@ class ConnectionRequest(BaseModel):
 
 
 
-class ToolsResponse(BaseModel):
-    tools: List[Any]
-    toolkit_slugs: List[str]
+class ToolkitResponse(BaseModel):
+    toolkits: List[str]
     user_id: int
-    
-    @field_serializer('tools')
-    def serialize_tools(self, tools: List[Any]) -> List[Dict[str, Any]]:
-        """Serialize tools to a format that can be JSON serialized."""
-        serialized_tools = []
-        for tool in tools:
-            try:
-                tool_dict = {
-                    "name": getattr(tool, 'name', str(tool)),
-                    "description": getattr(tool, 'description', None),
-                    "type": type(tool).__name__,
-                    "toolkit": getattr(tool, 'toolkit', None)
-                }
-                serialized_tools.append(tool_dict)
-            except Exception:
-                serialized_tools.append({
-                    "name": str(tool),
-                    "description": None,
-                    "type": type(tool).__name__,
-                    "toolkit": None
-                })
-        return serialized_tools
 
 
 class MessageResponse(BaseModel):

@@ -6,29 +6,25 @@ from app.dependencies import get_current_user
 from app.models.user import User
 from app.models.user_toolkit_connection import UserToolkitConnection
 from app.schemas.tool import (
-    ConnectionRequest, ToolsResponse, MessageResponse,
+    ConnectionRequest, ToolkitResponse, MessageResponse,
     ToolkitConnection, ToolkitConnectionList, ConnectionSyncResponse,
 )
 from app.services.composio_service import composio_service
 
-router = APIRouter(prefix="/tools", tags=["tools"])
+router = APIRouter(prefix="/toolkits", tags=["tools"])
 
 
-@router.get("/", response_model=ToolsResponse)
+@router.get("/", response_model=ToolkitResponse)
 async def get_tools_for_user(
-    filter: Optional[bool] = Query(None, description="Filter by enabled toolkits"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get tools for the current user, optionally filtered by toolkit."""
-    toolkit_slugs = []
-    if filter:
-        toolkit_slugs = composio_service.get_user_enabled_toolkits(db, current_user.user_id)
+    """Get supported toolkits."""
+   
+    toolkits = composio_service.get_supported_toolkits()
     
-    tools = composio_service.get_tools_for_user(str(current_user.user_id), toolkit_slugs)
-    return ToolsResponse(
-        tools=tools,
-        toolkit_slugs=toolkit_slugs,
+    return ToolkitResponse(
+        toolkits=toolkits,
         user_id=current_user.user_id
     )
 
