@@ -29,13 +29,28 @@ def add_message_embedding(message_id: int, content: str, embedding: List[float],
     logger.info(f"Added embedding for message {message_id} in conversation {conversation_id}")
 
 def query_similar_messages(query_embedding: List[float], conversation_id: int, top_k: int = 10) -> QueryResult:
-    results = collection.query(
+    SIMILARITY_THRESHOLD = 0.80
+    DISTANCE_THRESHOLD = 1 - SIMILARITY_THRESHOLD
+
+    raw_results = collection.query(
         query_embeddings=[query_embedding],
         n_results=top_k,
         where={"conversation_id": conversation_id},
         include=["documents", "metadatas", "distances"],
     )
-    return results
+
+    documents = raw_results["documents"][0]
+    metadatas = raw_results["metadatas"][0]
+    distances = raw_results["distances"][0]
+
+    filtered_results = [
+        {"document": doc, "metadata": meta, "distance": dist}
+        for doc, meta, dist in zip(documents, metadatas, distances)
+        if dist <= DISTANCE_THRESHOLD
+    ]
+
+    return filtered_results
+
 
 def delete_conversation_embeddings(conversation_id: int) -> bool:
     """

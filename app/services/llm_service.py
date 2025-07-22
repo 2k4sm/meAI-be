@@ -12,6 +12,7 @@ from app.utils.type_utils import safe_str, safe_int
 from app.constants import SYSTEM_PROMPT, N_CONTEXT_MESSAGES
 from sqlalchemy.orm import Session
 from app.config import settings
+from langchain_core.messages import ToolMessage
 from app.services.composio_service import composio_service
 import logging
 
@@ -39,7 +40,7 @@ model, embeddings = get_model_and_embeddings()
 async def get_embedding(text: str) -> List[float]:
     return embeddings.embed_query(safe_str(text))
 
-async def get_semantic_context(user_message: str, conversation_id: int, top_k: int = 5) -> List[str]:
+async def get_semantic_context(user_message: str, conversation_id: int, top_k: int = 10) -> List[str]:
     embedding = await get_embedding(user_message)
     results: QueryResult = query_similar_messages(embedding, conversation_id, top_k=top_k)  # type: ignore
     docs: List[str] = []
@@ -48,7 +49,7 @@ async def get_semantic_context(user_message: str, conversation_id: int, top_k: i
         docs = documents[0]
     return [safe_str(doc) for doc in docs]
 
-async def get_context_with_summary(db: Session, conversation_id: int, user_message: str, semantic_k: int = 5) -> List[str]:
+async def get_context_with_summary(db: Session, conversation_id: int, user_message: str, semantic_k: int = 10) -> List[str]:
     """
     Returns a list of context strings: the latest summary (if any), the last N messages, and semantic search results.
     """
@@ -75,94 +76,87 @@ async def store_message_embedding(message: Message, conversation_id: int):
     except Exception as embed_error:
         logger.error(f"Embedding error for message {message_id} in conversation {conversation_id}: {embed_error}")
 
-async def stream_llm_response(prompt: str, context: List[str], db: Session, user_id: int, slug: str) -> AsyncGenerator[Dict[str, Any], None]:
+async def stream_llm_response(prompt: str, context: List[str], db: Session, user_id: int, slugs: list[str]) -> AsyncGenerator[Dict[str, Any], None]:
     enabled_toolkits = composio_service.get_user_enabled_toolkits(db, user_id)
-
     tools_list = []
-
-    if slug != "NOTOOL":
-        toolkit_tools = composio.tools.get(user_id=str(user_id), toolkits=[slug])
-        if toolkit_tools:
-            tools_list.extend(toolkit_tools)
-    
+    for slug in slugs:
+        if slug != "NOTOOL":
+            toolkit_tools = composio.tools.get(user_id=str(user_id), toolkits=[slug])
+            if toolkit_tools:
+                tools_list.extend(toolkit_tools)
     tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_DUCK_DUCK_GO_SEARCH"]))
     tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_EXA_SIMILARLINKS"]))
     tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_NEWS_SEARCH"]))
     tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_SEARCH"]))
-
     model_with_tools = model
     if tools_list:
         model_with_tools = model.bind_tools(tools_list)
-    
     print(f"enabled_toolkits: {enabled_toolkits}")
     print(f"tools_list: {tools_list}")
+
     messages: List[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT)]
     if context:
         messages.append(HumanMessage(content="\n".join(context)))
     messages.append(HumanMessage(content=prompt))
-    
-    first_chunk = None
-    async for chunk in model_with_tools.astream(messages):
-        first_chunk = chunk
-        break
-    
-    if first_chunk:
+    max_tool_llm_cycles = 5
+    cycles = 0
+    tool_call_history = set()
+    while cycles < max_tool_llm_cycles:
+        cycles += 1
+        first_chunk = None
+        async for chunk in model_with_tools.astream(messages):
+            first_chunk = chunk
+            break
+        if not first_chunk:
+            break
         try:
-            response_dict = first_chunk.model_dump() if hasattr(first_chunk, 'dict') else {}
+            response_dict = first_chunk.model_dump()
             tool_calls = response_dict.get('tool_calls', [])
-            
             if tool_calls:
-                tool_results = []
-                for tool_call in tool_calls:
-                    try:
-                        # Stream tool execution status
-                        tool_name = tool_call["name"]
-                        yield {
-                            "type": "tool_start",
-                            "tool_name": tool_name,
-                            "content": f"\n\n**Executing {tool_name}...**\n\n"
-                        }
-                        
-                        tool_result = composio.tools.execute(
-                            tool_call['name'],
-                            tool_call['args'],
-                            user_id=str(user_id)
-                        )
-                        
-                        yield {
-                            "type": "tool_success",
-                            "tool_name": tool_name,
-                            "content": f"**{tool_name} completed successfully**\n\n",
-                            "tool_result": str(tool_result)
-                        }
-                        
-                        tool_results.append({
-                            "tool_call_id": tool_call.get("id"),
-                            "name": tool_call["name"],
-                            "content": str(tool_result)
-                        })
-                    except Exception as e:
-                        yield {
-                            "type": "tool_error",
-                            "tool_name": tool_call["name"],
-                            "content": f"**{tool_call['name']} failed: {str(e)}**\n\n",
-                            "error": str(e)
-                        }
-                        
-                        tool_results.append({
-                            "tool_call_id": tool_call.get("id"),
-                            "name": tool_call["name"],
-                            "content": f"Error executing tool: {str(e)}"
-                        })
-                
-                messages.append(first_chunk)
-                for tool_result in tool_results:
-                    from langchain_core.messages import ToolMessage
+                tool_call = tool_calls[0]
+                tool_name = tool_call["name"]
+                tool_args = str(tool_call.get("args", {}))
+                tool_call_key = (tool_name, tool_args)
+                if tool_call_key in tool_call_history:
+                    messages.append(HumanMessage(content=f"The tool call '{tool_name}' with these arguments has already been executed. Please move to the next tool call or provide a final answer."))
+                    continue 
+                tool_call_history.add(tool_call_key)
+                yield {
+                    "type": "tool_start",
+                    "tool_name": tool_name,
+                    "content": f"\n\n**Executing {tool_name}...**\n\n"
+                }
+                try:
+                    tool_result = composio.tools.execute(
+                        tool_call['name'],
+                        tool_call['args'],
+                        user_id=str(user_id)
+                    )
                     messages.append(ToolMessage(
-                        content=tool_result["content"],
-                        tool_call_id=tool_result["tool_call_id"]
+                        content=str(tool_result),
+                        tool_call_id=tool_call.get("id")
                     ))
-                
+                    messages.append(HumanMessage(content=f"The tool call '{tool_name}' has been completed. The response is available above. Please move to the next tool call or provide a final answer."))
+                except Exception as e:
+                    messages.append(ToolMessage(
+                        content=f"Error executing tool: {str(e)}",
+                        tool_call_id=tool_call.get("id")
+                    ))
+                    messages.append(HumanMessage(content=f"The tool call '{tool_name}' failed with an error. The error is available above. Please move to the next tool call or provide a final answer."))
+                continue
+            else:
+                messages.append(first_chunk)
+                if hasattr(first_chunk, "content"):
+                    if isinstance(first_chunk.content, str):
+                        yield {"type": "ai", "content": first_chunk.content}
+                    elif isinstance(first_chunk.content, list):
+                        for part in first_chunk.content:
+                            if isinstance(part, str):
+                                yield {"type": "ai", "content": part}
+                            elif isinstance(part, dict) and "text" in part:
+                                yield {"type": "ai", "content": part["text"]}
+                    else:
+                        yield {"type": "ai", "content": str(first_chunk.content)}
                 async for chunk in model_with_tools.astream(messages):
                     if isinstance(chunk.content, str):
                         yield {"type": "ai", "content": chunk.content}
@@ -177,18 +171,8 @@ async def stream_llm_response(prompt: str, context: List[str], db: Session, user
                 return
         except Exception as e:
             logger.error(f"Error in stream_llm_response: {str(e)}")
-    
-    async for chunk in model_with_tools.astream(messages):
-        if isinstance(chunk.content, str):
-            yield {"type": "ai", "content": chunk.content}
-        elif isinstance(chunk.content, list):
-            for part in chunk.content:
-                if isinstance(part, str):
-                    yield {"type": "ai", "content": part}
-                elif isinstance(part, dict) and "text" in part:
-                    yield {"type": "ai", "content": part["text"]}
-        else:
-            yield {"type": "ai", "content": str(chunk.content)}
+            break
+    yield {"type": "ai", "content": "Sorry, I was unable to complete your request due to too many tool steps or an internal error."}
 
 async def generate_summary_with_llm(messages: List[Message], previous_summary: Optional[str] = None) -> str:
     """
@@ -221,30 +205,32 @@ async def generate_summary_with_llm(messages: List[Message], previous_summary: O
     return str(response)
 
 
-async def classify_tool_intent_with_llm(user_message: str) -> str:
+async def classify_tool_intent_with_llm(user_message: str, db: Session, user_id: int) -> list[str]:
     """
-    Use the LLM to classify the user message into one of the allowed tool intent slugs.
-    Returns the slug as a string (e.g., "GOOGLETASKS").
+    Use the LLM to classify the user message into all relevant enabled tool intent slugs for the user.
+    Returns a list of slugs (e.g., ["GOOGLETASKS", "NOTION"]).
     """
-    allowed_slugs = composio_service.get_supported_toolkits()
+    enabled_slugs = [slug.upper() for slug in composio_service.get_user_enabled_toolkits(db, user_id)]
+    allowed_slugs = enabled_slugs + ["NOTOOL"]
     allowed_slugs_str = ", ".join(allowed_slugs)
     prompt = (
-        f"Classify the following user message into only one of these intent slugs:"
-        f"{allowed_slugs_str}, NOTOOL"
-        "Return only the slug as a string, nothing else.\n\n"
+        f"Classify the following user message into all relevant enabled intent slugs: "
+        f"{allowed_slugs_str}. If none are appropriate, return NOTOOL. "
+        f"Return a comma-separated list of slugs, nothing else. Slugs must be UPPERCASE.\n\n"
         f"User message: {user_message}"
     )
-
     llm_messages: List[BaseMessage] = [SystemMessage(content=prompt), HumanMessage(content=user_message)]
     response = await model.ainvoke(llm_messages)
     if isinstance(response, AIMessage):
-        slug = str(response.content).strip()
+        slug_str = str(response.content).strip().upper()
     elif hasattr(response, "content"):
-        slug = str(response.content).strip()
+        slug_str = str(response.content).strip().upper()
     elif isinstance(response, str):
-        slug = response.strip()
+        slug_str = response.strip().upper()
     else:
-        slug = str(response).strip()
-    if slug not in allowed_slugs:
-        slug = "NOTOOL"
-    return slug
+        slug_str = str(response).strip().upper()
+    slugs = [s.strip() for s in slug_str.split(",") if s.strip()]
+    valid_slugs = [s for s in slugs if s in allowed_slugs]
+    if not valid_slugs or "NOTOOL" in valid_slugs:
+        return ["NOTOOL"]
+    return valid_slugs
