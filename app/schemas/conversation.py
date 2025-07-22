@@ -18,3 +18,6 @@ class ConversationRead(BaseModel):
 
 class ConversationList(BaseModel):
     conversations: List[ConversationRead]
+
+class ConversationUpdate(BaseModel):
+    title: Optional[str] = None

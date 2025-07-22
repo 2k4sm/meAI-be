@@ -86,3 +86,12 @@ def delete_conversation(db: Session, conversation_id: int, user_id: int) -> bool
         db.commit()
         return True
     return False
+
+def update_conversation_title(db: Session, conversation_id: int, user_id: int, title: str) -> Optional[ConversationRead]:
+    conversation = db.query(Conversation).filter(Conversation.conversation_id == conversation_id, Conversation.user_id == user_id).first()
+    if not conversation:
+        return None
+    conversation.title = title
+    db.commit()
+    db.refresh(conversation)
+    return ConversationRead.model_validate(conversation)

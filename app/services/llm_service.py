@@ -39,7 +39,7 @@ def get_model_and_embeddings():
         chat_model = init_chat_model("google_genai:gemini-2.0-flash")
         embedding_model = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-exp-03-07")
     elif model_name == "openai":
-        chat_model = init_chat_model("openai:gpt-4o-mini")
+        chat_model = init_chat_model("openai:gpt-4.1-mini")
         embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
     else:
         raise ValueError(f"Invalid model: {settings.model}")

@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, status, WebSocket, WebSocketDisconnect, Cookie
+from fastapi import APIRouter, Depends, status, WebSocket, WebSocketDisconnect, Cookie, HTTPException
 from typing import Optional
 from app.utils.auth_utils import verify_session_token
 from app.services.auth_service import get_user_by_email
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.dependencies import get_current_user
-from app.schemas.conversation import ConversationRead, ConversationCreate, ConversationList
+from app.schemas.conversation import ConversationRead, ConversationCreate, ConversationList, ConversationUpdate
 from app.schemas.message import MessageList, MessageCreate
 from app.services import conversation_service
 from app.services.llm_service import stream_llm_response, store_message_embedding, get_context_with_summary, classify_tool_intent_with_llm
@@ -29,6 +29,15 @@ def create_conversation(conversation_in: ConversationCreate, db: Session = Depen
 def get_conversation_messages(conversation_id: int, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     messages = conversation_service.get_messages(db, conversation_id=conversation_id, user_id=current_user.user_id)
     return {"messages": messages}
+
+@router.patch("/{conversation_id}", response_model=ConversationRead)
+def update_conversation(conversation_id: int, conversation_update: ConversationUpdate, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+    if conversation_update.title is None:
+        raise HTTPException(status_code=400, detail="Title is required")
+    updated_conversation = conversation_service.update_conversation_title(db, conversation_id, current_user.user_id, conversation_update.title)
+    if not updated_conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return updated_conversation
 
 @router.delete("/{conversation_id}")
 def delete_conversation(conversation_id: int, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
