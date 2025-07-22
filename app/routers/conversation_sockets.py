@@ -74,8 +74,8 @@ async def handle_message(sid, data):
     if not user_message:
         print(f"[handle_message] No user_message provided.")
         return
-    slugs = await classify_tool_intent_with_llm(user_message, db, user_id)
-    print(f"[handle_message] slugs={slugs}")
+    slug = await classify_tool_intent_with_llm(user_message)
+    print(f"[handle_message] slug={slug}")
     message_in = MessageCreate(
         conversation_id=conversation_id,
         type=MessageType.HUMAN,
@@ -90,7 +90,7 @@ async def handle_message(sid, data):
         llm_response = ""
         tool_messages = []
         try:
-            async for chunk in stream_llm_response(user_message, context, db, user_id, slugs):
+            async for chunk in stream_llm_response(user_message, context, db, user_id, slug):
                 print(f"[handle_message] chunk={chunk}")
                 if chunk["type"] == "ai":
                     await sio.emit('assistant', {"role": "assistant", "content": chunk["content"]}, room=sid, namespace='/conversations/stream')

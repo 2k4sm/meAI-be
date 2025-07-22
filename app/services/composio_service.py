@@ -18,13 +18,14 @@ class ComposioService:
             api_key=settings.composio_api_key,
             provider=LangchainProvider()
         )
-        self._supported_toolkits = ["GOOGLECALENDAR", "NOTION", "GOOGLEDRIVE", "GMAIL", "GOOGLETASKS"]
+        self._supported_toolkits = ["GOOGLECALENDAR", "NOTION", "SLACKBOT", "GMAIL", "GOOGLETASKS", "TWITTER"]
         self.auth_configs = {
             "GOOGLECALENDAR": settings.google_calendar_auth_config_id,
             "NOTION": settings.notion_auth_config_id,
-            "GOOGLEDRIVE": settings.google_drive_auth_config_id,
+            "SLACKBOT": settings.slackbot_auth_config_id,
             "GMAIL": settings.gmail_auth_config_id,
             "GOOGLETASKS": settings.google_tasks_auth_config_id,
+            "TWITTER": settings.twitter_auth_config_id,
         }
         
     def get_supported_toolkits(self) -> List[str]:
