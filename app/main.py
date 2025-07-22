@@ -32,8 +32,6 @@ fastapi_app.add_middleware(
     allow_headers=["*"],
 )
 
-print("Allowed origins:", settings.allowed_origin)
-print("Debug:", settings)
 # Routers
 fastapi_app.include_router(auth.router)
 fastapi_app.include_router(conversations.router)

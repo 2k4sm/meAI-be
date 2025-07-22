@@ -235,7 +235,6 @@ async def classify_tool_intent_with_llm(user_message: str) -> str:
         f"User message: {user_message}"
     )
 
-    print(f"prompt: {prompt}")
     llm_messages: List[BaseMessage] = [SystemMessage(content=prompt), HumanMessage(content=user_message)]
     response = await model.ainvoke(llm_messages)
     if isinstance(response, AIMessage):
