@@ -68,8 +68,13 @@ async def get_context_with_summary(db: Session, conversation_id: int, user_messa
     return context
 
 async def store_message_embedding(message: Message, conversation_id: int):
+    from app.schemas.message import MessageType
     message_id = safe_int(getattr(message, 'message_id', None))
     content = safe_str(getattr(message, 'content', None))
+    msg_type = getattr(message, 'type', None)
+    if msg_type not in [MessageType.HUMAN, MessageType.AI]:
+        logger.info(f"Skipping embedding for message {message_id} in conversation {conversation_id} of type {msg_type}")
+        return
     try:
         embedding = await get_embedding(content)
         add_message_embedding(message_id, content, embedding, conversation_id)

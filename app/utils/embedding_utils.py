@@ -43,13 +43,25 @@ def query_similar_messages(query_embedding: List[float], conversation_id: int, t
     metadatas = raw_results["metadatas"][0]
     distances = raw_results["distances"][0]
 
-    filtered_results = [
-        {"document": doc, "metadata": meta, "distance": dist}
+    filtered = [
+        (doc, meta, dist)
         for doc, meta, dist in zip(documents, metadatas, distances)
         if dist <= DISTANCE_THRESHOLD
     ]
 
-    return filtered_results
+    if filtered:
+        filtered_documents, filtered_metadatas, filtered_distances = zip(*filtered)
+        filtered_documents = list(filtered_documents)
+        filtered_metadatas = list(filtered_metadatas)
+        filtered_distances = list(filtered_distances)
+    else:
+        filtered_documents, filtered_metadatas, filtered_distances = [], [], []
+
+    return {
+        "documents": [filtered_documents],
+        "metadatas": [filtered_metadatas],
+        "distances": [filtered_distances],
+    }
 
 
 def delete_conversation_embeddings(conversation_id: int) -> bool:

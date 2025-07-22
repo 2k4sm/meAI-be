@@ -89,23 +89,29 @@ async def handle_message(sid, data):
         print(f"[handle_message] context={context}")
         llm_response = ""
         tool_messages = []
-        async for chunk in stream_llm_response(user_message, context, db, user_id, slugs):
-            print(f"[handle_message] chunk={chunk}")
-            if chunk["type"] == "ai":
-                await sio.emit('assistant', {"role": "assistant", "content": chunk["content"]}, room=sid, namespace='/conversations/stream')
-                llm_response += chunk["content"]
-            elif chunk["type"] in ["tool_start", "tool_success", "tool_error"]:
-                await sio.emit('tool', {"role": "tool", "content": chunk["content"]}, room=sid, namespace='/conversations/stream')
-                tool_content = chunk["content"]
-                if chunk["type"] == "tool_success" and "tool_result" in chunk:
-                    tool_content += f"\nResult: {chunk['tool_result']}"
-                elif chunk["type"] == "tool_error" and "error" in chunk:
-                    tool_content += f"\nError: {chunk['error']}"
-                tool_messages.append({
-                    "tool_name": chunk["tool_name"],
-                    "content": tool_content,
-                    "type": chunk["type"]
-                })
+        try:
+            async for chunk in stream_llm_response(user_message, context, db, user_id, slugs):
+                print(f"[handle_message] chunk={chunk}")
+                if chunk["type"] == "ai":
+                    await sio.emit('assistant', {"role": "assistant", "content": chunk["content"]}, room=sid, namespace='/conversations/stream')
+                    llm_response += chunk["content"]
+                elif chunk["type"] in ["tool_start", "tool_success", "tool_error"]:
+                    await sio.emit('tool', {"role": "tool", "content": chunk["content"]}, room=sid, namespace='/conversations/stream')
+                    tool_content = chunk["content"]
+                    if chunk["type"] == "tool_success" and "tool_result" in chunk:
+                        tool_content += f"\nResult: {chunk['tool_result']}"
+                    elif chunk["type"] == "tool_error" and "error" in chunk:
+                        tool_content += f"\nError: {chunk['error']}"
+                    tool_messages.append({
+                        "tool_name": chunk["tool_name"],
+                        "content": tool_content,
+                        "type": chunk["type"]
+                    })
+        except Exception as stream_error:
+            error_message = f"Error streaming LLM/tool response: {str(stream_error)}"
+            print(f"[handle_message] Stream Exception: {error_message}")
+            await sio.emit('assistant', {"role": "assistant", "content": error_message}, room=sid, namespace='/conversations/stream')
+            return
         await sio.emit('last_chunk', {"last_chunk": True}, room=sid, namespace='/conversations/stream')
         reply_in = MessageCreate(
             conversation_id=conversation_id,
