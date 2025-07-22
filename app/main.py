@@ -26,12 +26,14 @@ fastapi_app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
 
 fastapi_app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.allowed_origin],
+    allow_origins=settings.allowed_origin,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+print("Allowed origins:", settings.allowed_origin)
+print("Debug:", settings)
 # Routers
 fastapi_app.include_router(auth.router)
 fastapi_app.include_router(conversations.router)
