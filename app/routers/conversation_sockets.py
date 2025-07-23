@@ -1,14 +1,14 @@
 import http.cookies
-from fastapi import Request
 from app.db.session import SessionLocal
 from app.main import sio
 from app.config import settings
 from app.services.auth_service import get_user_by_email
 from app.services import conversation_service
 from app.schemas.message import MessageCreate, MessageType
-from app.services.llm_service import stream_llm_response, store_message_embedding, get_context_with_summary, classify_tool_intent_with_llm
+from app.services.llm_service import stream_llm_response, store_message_embedding, get_context_with_summary, classify_tool_intent_with_llm, get_semantic_context
 from app.utils.auth_utils import verify_session_token
 from sqlalchemy.orm import Session
+from app.utils.message_utils import get_last_n_messages
 
 def get_cookie_from_environ(environ, cookie_name):
     cookie_header = environ.get('HTTP_COOKIE')
@@ -74,7 +74,14 @@ async def handle_message(sid, data):
     if not user_message:
         print(f"[handle_message] No user_message provided.")
         return
-    slug = await classify_tool_intent_with_llm(user_message)
+    conversation = db.query(conversation_service.Conversation).filter(conversation_service.Conversation.conversation_id == conversation_id).first()
+    conversation_summary = conversation.summary_text if conversation and conversation.summary_text else ""
+    
+    last_msgs = get_last_n_messages(db, conversation_id, 4)
+    last_messages = "\n".join([f"{msg.type}: {msg.content}" for msg in last_msgs])
+    semantic_context = await get_semantic_context(user_message, conversation_id, top_k=3)
+    semantic_results = "\n".join(semantic_context)
+    slug = await classify_tool_intent_with_llm(user_message, conversation_summary, last_messages, semantic_results)
     print(f"[handle_message] slug={slug}")
     message_in = MessageCreate(
         conversation_id=conversation_id,

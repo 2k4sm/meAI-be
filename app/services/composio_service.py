@@ -1,11 +1,9 @@
 from typing import List, Any, Optional
 from sqlalchemy.orm import Session
 from composio import Composio
-
 from composio_langchain import LangchainProvider
 from app.config import settings
 from app.models.user_toolkit_connection import UserToolkitConnection, ConnectionStatus
-
 from datetime import datetime, timezone
 import logging
 
@@ -175,7 +173,7 @@ class ComposioService:
                     connected_account_id=connected_account.id,
                     error_message=None
                 )
-                logger.info(f"Successfully synced connection for user {connection.user_id} and toolkit {connection.toolkit_slug}")
+                print(f"Successfully synced connection for user {connection.user_id} and toolkit {connection.toolkit_slug}")
                 return True
             elif composio_status in ["INITIALIZING", "INITIATED"]:
                 self.set_toolkit_connection_status(
@@ -184,7 +182,7 @@ class ComposioService:
                     connected_account_id=connected_account.id,
                     error_message=f"Connection is {composio_status.lower()}"
                 )
-                logger.info(f"Connection is {composio_status.lower()} for user {connection.user_id} and toolkit {connection.toolkit_slug}")
+                print(f"Connection is {composio_status.lower()} for user {connection.user_id} and toolkit {connection.toolkit_slug}")
                 return True
             elif composio_status in ["FAILED", "EXPIRED", "INACTIVE"]:
                 error_msg = f"Connection status in Composio is: {composio_status}"

@@ -1,8 +1,7 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from jose import jwt, JWTError
 from app.config import settings
-from datetime import timezone
 
 def create_session_token(payload: Dict[str, Any]) -> str:
     """Create a session token that will be stored in a cookie"""

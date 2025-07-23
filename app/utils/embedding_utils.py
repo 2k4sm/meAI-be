@@ -26,7 +26,7 @@ def add_message_embedding(message_id: int, content: str, embedding: List[float],
         }],
         documents=[content],
     )
-    logger.info(f"Added embedding for message {message_id} in conversation {conversation_id}")
+    print(f"Added embedding for message {message_id} in conversation {conversation_id}")
 
 def query_similar_messages(query_embedding: List[float], conversation_id: int, top_k: int = 10) -> QueryResult:
     SIMILARITY_THRESHOLD = 0.80
@@ -39,30 +39,31 @@ def query_similar_messages(query_embedding: List[float], conversation_id: int, t
         include=["documents", "metadatas", "distances"],
     )
 
-    documents = raw_results["documents"][0]
-    metadatas = raw_results["metadatas"][0]
-    distances = raw_results["distances"][0]
+    # documents = raw_results["documents"][0]
+    # metadatas = raw_results["metadatas"][0]
+    # distances = raw_results["distances"][0]
 
-    filtered = [
-        (doc, meta, dist)
-        for doc, meta, dist in zip(documents, metadatas, distances)
-        if dist <= DISTANCE_THRESHOLD
-    ]
+    # filtered = [
+    #     (doc, meta, dist)
+    #     for doc, meta, dist in zip(documents, metadatas, distances)
+    #     if dist <= DISTANCE_THRESHOLD
+    # ]
 
-    if filtered:
-        filtered_documents, filtered_metadatas, filtered_distances = zip(*filtered)
-        filtered_documents = list(filtered_documents)
-        filtered_metadatas = list(filtered_metadatas)
-        filtered_distances = list(filtered_distances)
-    else:
-        filtered_documents, filtered_metadatas, filtered_distances = [], [], []
+    # if filtered:
+    #     filtered_documents, filtered_metadatas, filtered_distances = zip(*filtered)
+    #     filtered_documents = list(filtered_documents)
+    #     filtered_metadatas = list(filtered_metadatas)
+    #     filtered_distances = list(filtered_distances)
+    # else:
+    #     filtered_documents, filtered_metadatas, filtered_distances = [], [], []
 
-    return {
-        "documents": [filtered_documents],
-        "metadatas": [filtered_metadatas],
-        "distances": [filtered_distances],
-    }
+    # return {
+    #     "documents": [filtered_documents],
+    #     "metadatas": [filtered_metadatas],
+    #     "distances": [filtered_distances],
+    # }
 
+    return raw_results
 
 def delete_conversation_embeddings(conversation_id: int) -> bool:
     """
@@ -76,7 +77,7 @@ def delete_conversation_embeddings(conversation_id: int) -> bool:
     """
     try:
         collection.delete(where={"conversation_id": conversation_id})
-        logger.info(f"Deleted all embeddings for conversation {conversation_id}")
+        print(f"Deleted all embeddings for conversation {conversation_id}")
         return True
     except Exception as e:
         logger.error(f"Failed to delete embeddings for conversation {conversation_id}: {str(e)}")
@@ -94,7 +95,7 @@ def delete_message_embedding(message_id: int) -> bool:
     """
     try:
         collection.delete(ids=[str(message_id)])
-        logger.info(f"Deleted embedding for message {message_id}")
+        print(f"Deleted embedding for message {message_id}")
         return True
     except Exception as e:
         logger.error(f"Failed to delete embedding for message {message_id}: {str(e)}")

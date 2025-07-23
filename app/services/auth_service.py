@@ -1,8 +1,8 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy.orm import Session
 from app.models.user import User
-from datetime import timezone
+
 def get_or_create_user(db: Session, userinfo: dict) -> User:
     """Get existing user or create new user from Google OAuth data"""
     email = userinfo.get("email")

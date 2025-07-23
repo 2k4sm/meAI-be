@@ -2,7 +2,7 @@ from typing import List, AsyncGenerator, Optional, Dict, Any
 from langchain.chat_models import init_chat_model
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_openai import OpenAIEmbeddings
-from langchain_core.messages import HumanMessage, SystemMessage, BaseMessage, AIMessage
+from langchain_core.messages import HumanMessage, SystemMessage, BaseMessage, AIMessage, ToolMessage
 from app.utils.message_utils import get_last_n_messages
 from app.utils.embedding_utils import add_message_embedding, query_similar_messages
 from chromadb.api.types import QueryResult
@@ -12,8 +12,6 @@ from app.utils.type_utils import safe_str, safe_int
 from app.constants import SYSTEM_PROMPT, N_CONTEXT_MESSAGES
 from sqlalchemy.orm import Session
 from app.config import settings
-from langchain_core.messages import ToolMessage
-from app.constants import SYSTEM_PROMPT
 from app.services.composio_service import composio_service
 import logging
 
@@ -25,9 +23,8 @@ def build_system_prompt(db: Session, user_id: int) -> str:
     Returns the system prompt with AvailableToolkits and AllToolkits appended.
     """
     enabled_toolkits = composio_service.get_user_enabled_toolkits(db, user_id)
-    all_toolkits = composio_service.get_supported_toolkits()
     prompt = SYSTEM_PROMPT.strip()
-    prompt += f"\n\nAvailableToolkits: {enabled_toolkits}\nAllToolkits: {all_toolkits}"
+    prompt += f"\n\nAvailableToolkits: {enabled_toolkits}"
     return prompt
 
 def get_model_and_embeddings():
@@ -84,7 +81,7 @@ async def store_message_embedding(message: Message, conversation_id: int):
     content = safe_str(getattr(message, 'content', None))
     msg_type = getattr(message, 'type', None)
     if msg_type not in [MessageType.HUMAN, MessageType.AI]:
-        logger.info(f"Skipping embedding for message {message_id} in conversation {conversation_id} of type {msg_type}")
+        print(f"Skipping embedding for message {message_id} in conversation {conversation_id} of type {msg_type}")
         return
     try:
         embedding = await get_embedding(content)
@@ -97,20 +94,28 @@ async def generate_summary_with_llm(messages: List[Message], previous_summary: O
     Use the LLM to generate a summary of the provided messages, optionally including the previous summary.
     """
     formatted = "\n".join([f"{msg.type}: {msg.content}" for msg in messages])
-    if previous_summary:
-        prompt = (
-            "Given the previous summary and the following new messages, create an updated concise summary that captures the main points and context for future reference. "
-            f"Previous summary:\n{previous_summary}\n\nNew messages:\n{formatted}"
-        )
-    else:
-        prompt = (
-            "Summarize the following conversation messages in a concise way, capturing the main points and context for future reference. "
-        )
     if db is not None and user_id is not None:
         system_prompt = build_system_prompt(db, user_id)
     else:
-        from app.constants import SYSTEM_PROMPT
         system_prompt = SYSTEM_PROMPT
+    if previous_summary:
+        prompt = (
+            f"""
+            Current summary: {previous_summary}
+            New message: {formatted}
+            
+            Update summary integrating new content while preserving key context and ongoing threads.
+            """
+        )
+    else:
+        prompt = (
+            f"""
+            System prompt: {system_prompt}
+            First message: {formatted}
+            
+            Create initial summary capturing conversation context, purpose, and key points.
+            """
+        )
     llm_messages: List[BaseMessage] = [SystemMessage(content=system_prompt), HumanMessage(content=prompt)]
     response = await model.ainvoke(llm_messages)
     if isinstance(response, AIMessage):
@@ -128,20 +133,28 @@ async def generate_summary_with_llm(messages: List[Message], previous_summary: O
     return str(response)
 
 
-async def classify_tool_intent_with_llm(user_message: str) -> str:
+async def classify_tool_intent_with_llm(user_message: str, conversation_summary: str = "", last_messages: str = "", semantic_results: str = "") -> str:
     """
     Use the LLM to classify the user message into one of the allowed tool intent slugs.
     Returns the slug as a string (e.g., "GOOGLETASKS").
+    Now includes conversation_summary, last_messages, and semantic_results in the prompt.
     """
     allowed_slugs = composio_service.get_supported_toolkits()
     allowed_slugs_str = ", ".join(allowed_slugs)
     prompt = (
-        f"Classify the following user message into only one of these intent slugs:"
-        f"{allowed_slugs_str}, NOTOOL"
-        "Return only the slug as a string, nothing else.\n\n"
-        f"User message: {user_message}"
+        f"""
+        Classify user message into ONE tool intent from: {allowed_slugs_str}, NOTOOL
+        Context:
+           - Conversation: {conversation_summary}
+           - Recent messages: {last_messages}
+           - Related history: {semantic_results}
+
+        Consider conversation flow and established patterns. Use context to resolve ambiguous requests.
+        User message: {user_message}
+        Return only the tool slug.
+        """
     )
-    logger.info(f"[classify_tool_intent_with_llm] prompt: {prompt}")
+    print(f"[classify_tool_intent_with_llm] prompt: {prompt}")
     llm_messages: List[BaseMessage] = [SystemMessage(content=prompt), HumanMessage(content=user_message)]
     response = await model.ainvoke(llm_messages)
     if isinstance(response, AIMessage):
@@ -154,7 +167,7 @@ async def classify_tool_intent_with_llm(user_message: str) -> str:
         slug = str(response).strip()
     if slug not in allowed_slugs:
         slug = "NOTOOL"
-    logger.info(f"[classify_tool_intent_with_llm] result slug: {slug}")
+    print(f"[classify_tool_intent_with_llm] result slug: {slug}")
     return slug
 
 async def stream_llm_response(prompt: str, context: List[str], db: Session, user_id: int, slug: str) -> AsyncGenerator[Dict[str, Any], None]:
@@ -164,18 +177,16 @@ async def stream_llm_response(prompt: str, context: List[str], db: Session, user
         toolkit_tools = composio.tools.get(user_id=str(user_id), toolkits=[slug])
         if toolkit_tools:
             tools_list.extend(toolkit_tools)
-    tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_DUCK_DUCK_GO_SEARCH"]))
-    tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_EXA_SIMILARLINKS"]))
     tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_NEWS_SEARCH"]))
     tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_SEARCH"]))
     model_with_tools = model
     if tools_list:
         model_with_tools = model.bind_tools(tools_list)
-    logger.info(f"[stream_llm_response] enabled_toolkits: {enabled_toolkits}")
-    logger.info(f"[stream_llm_response] tools_list: {tools_list}")
+    print(f"[stream_llm_response] enabled_toolkits: {enabled_toolkits}")
+    print(f"[stream_llm_response] tools_list: {tools_list}")
     messages: List[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT)]
     if context:
-        messages.append(HumanMessage(content="\n".join(context)))
+        messages.append(HumanMessage(content="\n Context: \n".join(context)))
     messages.append(HumanMessage(content=prompt))
     first_chunk = None
     async for chunk in model_with_tools.astream(messages):
@@ -190,7 +201,7 @@ async def stream_llm_response(prompt: str, context: List[str], db: Session, user
                 for tool_call in tool_calls:
                     try:
                         tool_name = tool_call["name"]
-                        logger.info(f"[stream_llm_response] Tool call detected: {tool_call}")
+                        print(f"[stream_llm_response] Tool call detected: {tool_call}")
                         yield {
                             "type": "tool_start",
                             "tool_name": tool_name,
@@ -201,8 +212,7 @@ async def stream_llm_response(prompt: str, context: List[str], db: Session, user
                             tool_call['args'],
                             user_id=str(user_id)
                         )
-                        logger.info(f"[stream_llm_response] Tool '{tool_name}' executed. Result: {tool_result}")
-                        # Store the tool result, but do not send it to the client
+                        print(f"[stream_llm_response] Tool '{tool_name}' executed. Result: {tool_result}")
                         tool_results.append({
                             "tool_call_id": tool_call.get("id"),
                             "name": tool_call["name"],
@@ -215,7 +225,6 @@ async def stream_llm_response(prompt: str, context: List[str], db: Session, user
                         }
                     except Exception as e:
                         logger.error(f"[stream_llm_response] Error executing tool: {str(e)}")
-                        # Store the error, but do not send the error details to the client
                         tool_results.append({
                             "tool_call_id": tool_call.get("id"),
                             "name": tool_call["name"],
