@@ -34,9 +34,7 @@ jobs:
             pip install --upgrade pip
             pip install -r requirements.txt
             # Start or update ChromaDB service
-            if [ -f docker-compose.yml ]; then
-              docker compose up -d meai-chromadb
-            fi
+            docker compose up -d meai-chromadb
             # PM2: start or reload using ecosystem file
             if pm2 list | grep -q "meai-be"; then
               pm2 reload meai-be --update-env
