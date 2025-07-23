@@ -34,7 +34,7 @@ def get_model_and_embeddings():
     model_name = settings.model.lower()
     if model_name == "gemini":
         chat_model = init_chat_model("google_genai:gemini-2.0-flash")
-        embedding_model = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-exp-03-07")
+        embedding_model = GoogleGenerativeAIEmbeddings(model="models/embedding-001", task_type="SEMANTIC_SIMILARITY")
     elif model_name == "openai":
         chat_model = init_chat_model("openai:gpt-4.1-mini")
         embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
@@ -205,7 +205,7 @@ async def stream_llm_response(prompt: str, context: List[str], db: Session, user
                         yield {
                             "type": "tool_start",
                             "tool_name": tool_name,
-                            "content": f"\n\n**Executing {tool_name}...**\n\n"
+                            "content": f"\n\n**Executing {tool_name}**\n\n"
                         }
                         tool_result = composio.tools.execute(
                             tool_call['name'],
@@ -221,7 +221,7 @@ async def stream_llm_response(prompt: str, context: List[str], db: Session, user
                         yield {
                             "type": "tool_success",
                             "tool_name": tool_name,
-                            "content": f"**{tool_name} completed successfully**\n\n"
+                            "content": f"**{tool_name} execution completed**\n\n"
                         }
                     except Exception as e:
                         logger.error(f"[stream_llm_response] Error executing tool: {str(e)}")

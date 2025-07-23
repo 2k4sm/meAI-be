@@ -15,55 +15,35 @@ chroma_client = chromadb.HttpClient(
 collection = chroma_client.get_or_create_collection('messages')
 
 def add_message_embedding(message_id: int, content: str, embedding: List[float], conversation_id: int):
-    timestamp = datetime.now().isoformat()
-    collection.add(
-        ids=[str(message_id)],
-        embeddings=[embedding],
-        metadatas=[{
-            "message_id": message_id, 
-            "conversation_id": conversation_id,
-            "timestamp": timestamp
-        }],
-        documents=[content],
-    )
-    print(f"Added embedding for message {message_id} in conversation {conversation_id}")
+    try:
+        timestamp = datetime.now().isoformat()
+        collection.add(
+            ids=[str(message_id)],
+            embeddings=[embedding],
+            metadatas=[{
+                "message_id": message_id, 
+                "conversation_id": conversation_id,
+                "timestamp": timestamp
+            }],
+            documents=[content],
+        )
+        print(f"Added embedding for message {message_id} in conversation {conversation_id}")
+    except Exception as e:
+        logger.error(f"Error adding embedding for message {message_id} in conversation {conversation_id}: {e}")
 
 def query_similar_messages(query_embedding: List[float], conversation_id: int, top_k: int = 10) -> QueryResult:
-    SIMILARITY_THRESHOLD = 0.80
-    DISTANCE_THRESHOLD = 1 - SIMILARITY_THRESHOLD
-
-    raw_results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=top_k,
-        where={"conversation_id": conversation_id},
-        include=["documents", "metadatas", "distances"],
-    )
-
-    # documents = raw_results["documents"][0]
-    # metadatas = raw_results["metadatas"][0]
-    # distances = raw_results["distances"][0]
-
-    # filtered = [
-    #     (doc, meta, dist)
-    #     for doc, meta, dist in zip(documents, metadatas, distances)
-    #     if dist <= DISTANCE_THRESHOLD
-    # ]
-
-    # if filtered:
-    #     filtered_documents, filtered_metadatas, filtered_distances = zip(*filtered)
-    #     filtered_documents = list(filtered_documents)
-    #     filtered_metadatas = list(filtered_metadatas)
-    #     filtered_distances = list(filtered_distances)
-    # else:
-    #     filtered_documents, filtered_metadatas, filtered_distances = [], [], []
-
-    # return {
-    #     "documents": [filtered_documents],
-    #     "metadatas": [filtered_metadatas],
-    #     "distances": [filtered_distances],
-    # }
-
-    return raw_results
+    
+    try:
+        raw_results = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=top_k,
+            where={"conversation_id": conversation_id},
+            include=["documents", "metadatas", "distances"],
+        )
+        return raw_results
+    except Exception as e:
+        logger.error(f"Error querying similar messages for conversation {conversation_id}: {e}")
+        return {"documents": [[]], "metadatas": [[]], "distances": [[]]}  # Return empty result on error
 
 def delete_conversation_embeddings(conversation_id: int) -> bool:
     """
