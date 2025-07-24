@@ -104,7 +104,7 @@ async def generate_summary_with_llm(messages: List[Message], previous_summary: O
             Current summary: {previous_summary}
             New message: {formatted}
             
-            Update summary integrating new content while preserving key context and ongoing threads.
+            Update summary integrating new content while preserving key context and ongoing threads limit the summary to 200 words.
             """
         )
     else:
@@ -113,7 +113,7 @@ async def generate_summary_with_llm(messages: List[Message], previous_summary: O
             System prompt: {system_prompt}
             First message: {formatted}
             
-            Create initial summary capturing conversation context, purpose, and key points.
+            Create initial summary capturing conversation context, purpose, and key points limit the summary to 200 words.
             """
         )
     llm_messages: List[BaseMessage] = [SystemMessage(content=system_prompt), HumanMessage(content=prompt)]
