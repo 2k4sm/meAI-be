@@ -125,9 +125,6 @@ async def handle_message(sid, data):
             type=MessageType.AI,
             content=llm_response
         )
-        reply_message_obj = await conversation_service.add_message(db, reply_in, user_id)
-        if reply_in.type in [MessageType.HUMAN, MessageType.AI]:
-            await store_message_embedding(reply_message_obj, conversation_id)
         for tool_msg in tool_messages:
             tool_message_in = MessageCreate(
                 conversation_id=conversation_id,
@@ -135,6 +132,9 @@ async def handle_message(sid, data):
                 content=f"[{tool_msg['tool_name']}] {tool_msg['content']}"
             )
             await conversation_service.add_message(db, tool_message_in, user_id)
+        reply_message_obj = await conversation_service.add_message(db, reply_in, user_id)
+        if reply_in.type in [MessageType.HUMAN, MessageType.AI]:
+            await store_message_embedding(reply_message_obj, conversation_id)
     except Exception as e:
         error_message = f"Error processing request: {str(e)}"
         print(f"[handle_message] Exception: {error_message}")
