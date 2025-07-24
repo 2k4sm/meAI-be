@@ -1,6 +1,6 @@
 from typing import List, AsyncGenerator, Optional, Dict, Any
 from langchain.chat_models import init_chat_model
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI, HarmCategory, HarmBlockThreshold
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.messages import HumanMessage, SystemMessage, BaseMessage, AIMessage, ToolMessage
 from app.utils.message_utils import get_last_n_messages
@@ -33,7 +33,16 @@ def get_model_and_embeddings():
     """
     model_name = settings.model.lower()
     if model_name == "gemini":
-        chat_model = init_chat_model("google_genai:gemini-2.0-flash")
+        chat_model = ChatGoogleGenerativeAI(
+            model="gemini-2.0-flash",
+            safety_settings={
+                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+            },
+            max_output_tokens=4096,
+        )
         embedding_model = GoogleGenerativeAIEmbeddings(model="models/embedding-001", task_type="SEMANTIC_SIMILARITY")
     elif model_name == "openai":
         chat_model = init_chat_model("openai:gpt-4.1-mini")
@@ -43,7 +52,15 @@ def get_model_and_embeddings():
     return chat_model, embedding_model
 
 model, embeddings = get_model_and_embeddings()
-
+summary_model = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash-lite",
+    safety_settings={
+        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+    }
+)
 
 async def get_embedding(text: str) -> List[float]:
     return embeddings.embed_query(safe_str(text))
@@ -140,17 +157,29 @@ async def classify_tool_intent_with_llm(user_message: str, conversation_summary:
     Now includes conversation_summary, last_messages, and semantic_results in the prompt.
     """
     allowed_slugs = composio_service.get_supported_toolkits()
-    allowed_slugs_str = ", ".join(allowed_slugs)
+    allowed_slugs_str = " ".join(allowed_slugs)
     prompt = (
         f"""
-        Classify user message into ONE tool intent from: {allowed_slugs_str}, NOTOOL
+        Classify user message into ONE tool intent from: {allowed_slugs_str}, NOTOOL, SEARCH
+        
         Context:
-           - Conversation: {conversation_summary}
            - Recent messages: {last_messages}
            - Related history: {semantic_results}
 
-        Consider conversation flow and established patterns. Use context to resolve ambiguous requests.
-        User message: {user_message}
+        
+        GUIDELINES:
+        - Map slack or slack related queries to SLACKBOT tool.
+        - Map calendar or calendar related queries to GOOGLECALENDAR tool.
+        - Map email or email related queries to GMAIL tool.
+        - Map tasks or tasks related queries to GOOGLETASKS tool.
+        - Map notion or notion related queries to NOTION tool.
+        - Map twitter or twitter related queries to TWITTER tool.
+        - Map search or search related queries to SEARCH tool.
+        - Map to NOTOOL if the user message is not related to any of the above given toolkits or tools.
+
+        Consider past messages, Related history, current user message and patterns to classify the the tool intent properly. 
+        Use context to resolve ambiguous requests.
+        
         Return only the tool slug.
         """
     )
@@ -165,8 +194,6 @@ async def classify_tool_intent_with_llm(user_message: str, conversation_summary:
         slug = response.strip()
     else:
         slug = str(response).strip()
-    if slug not in allowed_slugs:
-        slug = "NOTOOL"
     print(f"[classify_tool_intent_with_llm] result slug: {slug}")
     return slug
 
@@ -177,16 +204,24 @@ async def stream_llm_response(prompt: str, context: List[str], db: Session, user
         toolkit_tools = composio.tools.get(user_id=str(user_id), toolkits=[slug])
         if toolkit_tools:
             tools_list.extend(toolkit_tools)
-    tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_NEWS_SEARCH"]))
-    tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_SEARCH"]))
+    
+    if slug == "SEARCH":
+        tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_NEWS_SEARCH"]))
+        tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_SEARCH"]))
+        tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_FINANCE_SEARCH"]))
+        enabled_toolkits.append("COMPOSIO_SEARCH_NEWS_SEARCH")
+        enabled_toolkits.append("COMPOSIO_SEARCH_SEARCH")
+        enabled_toolkits.append("COMPOSIO_SEARCH_FINANCE_SEARCH")
+
     model_with_tools = model
     if tools_list:
         model_with_tools = model.bind_tools(tools_list)
     print(f"[stream_llm_response] enabled_toolkits: {enabled_toolkits}")
     print(f"[stream_llm_response] tools_list: {tools_list}")
-    messages: List[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT.join(f"Available Toolkits: {enabled_toolkits}\n"))]
+    messages: List[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT)]
     if context:
-        messages.append(SystemMessage(content="\n Context: \n".join(context)))
+        messages.append(SystemMessage(content="\n Past Context: \n".join(context)))
+        messages.append(SystemMessage(content="\n Available Toolkits: \n".join(enabled_toolkits)))
     messages.append(HumanMessage(content=prompt))
     first_chunk = None
     async for chunk in model_with_tools.astream(messages):

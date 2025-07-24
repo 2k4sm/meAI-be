@@ -79,11 +79,11 @@ async def handle_message(sid, data):
         conversation = db.query(conversation_service.Conversation).filter(conversation_service.Conversation.conversation_id == conversation_id).first()
         conversation_summary = conversation.summary_text if conversation and conversation.summary_text else ""
         
-        last_msgs = get_last_n_messages(db, conversation_id, 4)
+        last_msgs = get_last_n_messages(db, conversation_id, 3)
         last_messages = "\n".join([f"{msg.type}: {msg.content}" for msg in last_msgs])
         semantic_context = await get_semantic_context(user_message, conversation_id, top_k=3)
         semantic_results = "\n".join(semantic_context)
-        slug = await classify_tool_intent_with_llm(user_message, conversation_summary, last_messages, semantic_results)
+        slug = await classify_tool_intent_with_llm(user_message, "", last_messages, semantic_results)
         print(f"[handle_message] slug={slug}")
         message_in = MessageCreate(
             conversation_id=conversation_id,
