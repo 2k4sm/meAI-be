@@ -173,7 +173,7 @@ async def classify_tool_intent_with_llm(user_message: str, conversation_summary:
 async def stream_llm_response(prompt: str, context: List[str], db: Session, user_id: int, slug: str) -> AsyncGenerator[Dict[str, Any], None]:
     enabled_toolkits = composio_service.get_user_enabled_toolkits(db, user_id)
     tools_list = []
-    if slug != "NOTOOL":
+    if slug != "NOTOOL" and slug in enabled_toolkits:
         toolkit_tools = composio.tools.get(user_id=str(user_id), toolkits=[slug])
         if toolkit_tools:
             tools_list.extend(toolkit_tools)
@@ -184,9 +184,9 @@ async def stream_llm_response(prompt: str, context: List[str], db: Session, user
         model_with_tools = model.bind_tools(tools_list)
     print(f"[stream_llm_response] enabled_toolkits: {enabled_toolkits}")
     print(f"[stream_llm_response] tools_list: {tools_list}")
-    messages: List[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT)]
+    messages: List[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT.join(f"Available Toolkits: {enabled_toolkits}\n"))]
     if context:
-        messages.append(HumanMessage(content="\n Context: \n".join(context)))
+        messages.append(SystemMessage(content="\n Context: \n".join(context)))
     messages.append(HumanMessage(content=prompt))
     first_chunk = None
     async for chunk in model_with_tools.astream(messages):
