@@ -35,8 +35,7 @@ jobs:
             pip install -r requirements.txt
 
             #Update ChromaDB service
-            docker compose down meai-chromadb
-            docker volume rm meai-be_chroma_data
+            docker compose down -v meai-chromadb
             docker compose up -d meai-chromadb
 
             # PM2: start or reload using ecosystem file
