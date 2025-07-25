@@ -104,30 +104,18 @@ async def generate_summary_with_llm(messages: List[Message], previous_summary: O
     Use the LLM to generate a summary of the provided messages, optionally including the previous summary.
     """
     formatted = "\n".join([f"{msg.type}: {msg.content}" for msg in messages])
-    if db is not None and user_id is not None:
-        system_prompt = build_system_prompt(db, user_id)
-    else:
-        system_prompt = SYSTEM_PROMPT
     if previous_summary:
         prompt = (
             f"""
-            You are a summarising tool which summarises the conversation between the user and the ai using the previous summary and provided messages to create a new summary.
-
             Previous summary: {previous_summary}
-            
-            Update this previous summary integrating new content while preserving key context and ongoing threads. limit the summary to 200 words.
 
-            Return the new Summary.
+            Update this summary with new content while preserving key context and ongoing threads. Prioritize new developments, remove outdated details, consolidate repetitive information, and maintain only essential context. 175 words maximum.
             """
         )
     else:
         prompt = (
             f"""
-            You are a summarising tool which summarises the conversation between the user and the ai using the previous summary and provided messages to create a new summary.
-            
-            Create initial summary capturing conversation context, purpose, and key points limit the summary to 200 words.
-
-            Return the Created initial Summary.
+            Summarize this conversation's context, purpose, and key points in 175 maximum. Prioritize essential information, eliminate redundancy, and use concise language for efficient storage.
             """
         )
 
@@ -158,30 +146,36 @@ async def classify_tool_intent_with_llm(user_message: str, conversation_summary:
     allowed_slugs_str = " ".join(allowed_slugs)
     prompt = (
         f"""
-        Classify the user message into ONE or MORE tool intents from: {allowed_slugs_str}, NOTOOL, SEARCH
-
-        Context:
-           - Conversation flow: {conversation_summary}
-           - Recent messages: {last_messages}
-           - Semantic results: {semantic_results}
-
-        GUIDELINES:
-        - Map slack or slack related queries to SLACKBOT tool.
-        - Map calendar or calendar related queries to GOOGLECALENDAR tool.
-        - Map email or email related queries to GMAIL tool.
-        - Map task or task related queries to GOOGLETASKS tool.
-        - Map notion or notion related queries to NOTION tool.
-        - Map twitter or twitter related queries to TWITTER tool.
-        - Map search or search related queries to SEARCH tool.
-        - Map to NOTOOL if the user message is not related to any of the above given toolkits or tools.
-
-        Consider current user message, past messages, related history, and current patterns to classify the tool intent properly.
+        Determine which tools are needed to fulfill the user's request from: {allowed_slugs_str}, NOTOOL, SEARCH
+        **Context**: 
+            
+            - Conversation flow: {conversation_summary}
+            - Past Interactions: {last_messages}
+            
+            - Semantic Results: {semantic_results}
         
-        Use context to resolve ambiguous requests.
+        **Tool mappings**:
 
-        Return a comma-separated list of tool slugs (e.g., "GOOGLETASKS,GMAIL") if multiple apply, or a single slug if only one applies.
-        
-        Do not return any explanation or extra text.
+            - SLACKBOT: Slack messaging, channels, workspace
+            - GOOGLECALENDAR: Calendar, scheduling, meetings
+            - GMAIL: Email sending, reading, management
+            - GOOGLETASKS: Tasks, todos, reminders
+            - NOTION: Notes, docs, pages, databases
+            - TWITTER: Social posts, tweets
+            - SEARCH: Web search, information lookup, news search
+            - NOTOOL: General chat, no tool needed
+
+        **Rules**:
+
+            - Use conversation context to resolve ambiguous requests
+            
+            - Return multiple tools if needed (comma-separated)
+            
+            - Consider implicit intents (e.g., "remind me" = GOOGLETASKS)
+            
+            - Default to NOTOOL only when clearly no tools apply
+
+        Return only tool slug(s). No explanation.
         """
     )
 
