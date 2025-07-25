@@ -33,8 +33,12 @@ jobs:
             source venv/bin/activate
             pip install --upgrade pip
             pip install -r requirements.txt
-            # Start or update ChromaDB service
+
+            #Update ChromaDB service
+            docker compose down meai-chromadb
+            docker volume rm meai-be_chroma_data
             docker compose up -d meai-chromadb
+
             # PM2: start or reload using ecosystem file
             if pm2 list | grep -q "meai-be"; then
               pm2 reload meai-be --update-env
