@@ -83,8 +83,8 @@ async def handle_message(sid, data):
         last_messages = "\n".join([f"{msg.type}: {msg.content}" for msg in last_msgs])
         semantic_context = await get_semantic_context(user_message, conversation_id, top_k=3)
         semantic_results = "\n".join(semantic_context)
-        slug = await classify_tool_intent_with_llm(user_message, "", last_messages, semantic_results)
-        print(f"[handle_message] slug={slug}")
+        slugs = await classify_tool_intent_with_llm(user_message, conversation_summary, last_messages, semantic_results)
+        print(f"[handle_message] slug={slugs}")
         message_in = MessageCreate(
             conversation_id=conversation_id,
             type=MessageType.HUMAN,
@@ -99,7 +99,7 @@ async def handle_message(sid, data):
             llm_response = ""
             tool_messages = []
             try:
-                async for chunk in stream_llm_response(user_message, context, db, user_id, slug):
+                async for chunk in stream_llm_response(user_message, context, db, user_id, slugs):
                     print(f"[handle_message] chunk={chunk}")
                     if chunk["type"] == "ai":
                         await sio.emit('assistant', {"role": "assistant", "content": chunk["content"]}, room=sid, namespace='/conversations/stream')

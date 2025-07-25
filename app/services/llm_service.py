@@ -111,17 +111,23 @@ async def generate_summary_with_llm(messages: List[Message], previous_summary: O
     if previous_summary:
         prompt = (
             f"""
-            Current summary: {previous_summary}
+            You are a summarising tool which summarises the conversation between the user and the ai using the previous summary and provided messages to create a new summary.
+
+            Previous summary: {previous_summary}
             
-            Update summary integrating new content while preserving key context and ongoing threads limit the summary to 200 words.
+            Update this previous summary integrating new content while preserving key context and ongoing threads. limit the summary to 200 words.
+
+            Return the new Summary.
             """
         )
     else:
         prompt = (
             f"""
-            System prompt: {system_prompt}
+            You are a summarising tool which summarises the conversation between the user and the ai using the previous summary and provided messages to create a new summary.
             
             Create initial summary capturing conversation context, purpose, and key points limit the summary to 200 words.
+
+            Return the Created initial Summary.
             """
         )
 
@@ -142,68 +148,74 @@ async def generate_summary_with_llm(messages: List[Message], previous_summary: O
     return str(response)
 
 
-async def classify_tool_intent_with_llm(user_message: str, conversation_summary: str = "", last_messages: str = "", semantic_results: str = "") -> str:
+async def classify_tool_intent_with_llm(user_message: str, conversation_summary: str = "", last_messages: str = "", semantic_results: str = "") -> list:
     """
-    Use the LLM to classify the user message into one of the allowed tool intent slugs.
-    Returns the slug as a string (e.g., "GOOGLETASKS").
+    Use the LLM to classify the user message into one or more of the allowed tool intent slugs.
+    Returns a list of slugs as strings (e.g., ["GOOGLETASKS", "GMAIL"]).
     Now includes conversation_summary, last_messages, and semantic_results in the prompt.
     """
     allowed_slugs = composio_service.get_supported_toolkits()
     allowed_slugs_str = " ".join(allowed_slugs)
     prompt = (
         f"""
-        Classify user message into ONE tool intent from: {allowed_slugs_str}, NOTOOL, SEARCH
-        
-        Context:
-           - Recent messages: {last_messages}
-           - Related history: {semantic_results}
+        Classify the user message into ONE or MORE tool intents from: {allowed_slugs_str}, NOTOOL, SEARCH
 
-        
+        Context:
+           - Conversation flow: {conversation_summary}
+           - Recent messages: {last_messages}
+           - Semantic results: {semantic_results}
+
         GUIDELINES:
         - Map slack or slack related queries to SLACKBOT tool.
         - Map calendar or calendar related queries to GOOGLECALENDAR tool.
         - Map email or email related queries to GMAIL tool.
-        - Map tasks or tasks related queries to GOOGLETASKS tool.
+        - Map task or task related queries to GOOGLETASKS tool.
         - Map notion or notion related queries to NOTION tool.
         - Map twitter or twitter related queries to TWITTER tool.
         - Map search or search related queries to SEARCH tool.
         - Map to NOTOOL if the user message is not related to any of the above given toolkits or tools.
 
-        Consider past messages, Related history, current user message and patterns to classify the the tool intent properly. 
-        Use context to resolve ambiguous requests.
+        Consider current user message, past messages, related history, and current patterns to classify the tool intent properly.
         
-        Return only the tool slug.
+        Use context to resolve ambiguous requests.
+
+        Return a comma-separated list of tool slugs (e.g., "GOOGLETASKS,GMAIL") if multiple apply, or a single slug if only one applies.
+        
+        Do not return any explanation or extra text.
         """
     )
+
     print(f"[classify_tool_intent_with_llm] prompt: {prompt}")
     llm_messages: List[BaseMessage] = [SystemMessage(content=prompt), HumanMessage(content=user_message)]
     response = await summary_model.ainvoke(llm_messages)
     if isinstance(response, AIMessage):
-        slug = str(response.content).strip()
+        slug_str = str(response.content).strip()
     elif hasattr(response, "content"):
-        slug = str(response.content).strip()
+        slug_str = str(response.content).strip()
     elif isinstance(response, str):
-        slug = response.strip()
+        slug_str = response.strip()
     else:
-        slug = str(response).strip()
-    print(f"[classify_tool_intent_with_llm] result slug: {slug}")
-    return slug
+        slug_str = str(response).strip()
+    print(f"[classify_tool_intent_with_llm] result slug(s): {slug_str}")
+    slugs = [s.strip() for s in slug_str.split(",") if s.strip()]
+    return slugs
 
-async def stream_llm_response(prompt: str, context: List[str], db: Session, user_id: int, slug: str) -> AsyncGenerator[Dict[str, Any], None]:
+async def stream_llm_response(prompt: str, context: List[str], db: Session, user_id: int, slugs: List[str]) -> AsyncGenerator[Dict[str, Any], None]:
     enabled_toolkits = composio_service.get_user_enabled_toolkits(db, user_id)
     tools_list = []
-    if slug != "NOTOOL" and slug in enabled_toolkits:
-        toolkit_tools = composio.tools.get(user_id=str(user_id), toolkits=[slug])
-        if toolkit_tools:
-            tools_list.extend(toolkit_tools)
-    
-    if slug == "SEARCH":
-        tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_NEWS_SEARCH"]))
-        tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_SEARCH"]))
-        tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_FINANCE_SEARCH"]))
-        enabled_toolkits.append("COMPOSIO_SEARCH_NEWS_SEARCH")
-        enabled_toolkits.append("COMPOSIO_SEARCH_SEARCH")
-        enabled_toolkits.append("COMPOSIO_SEARCH_FINANCE_SEARCH")
+    for slug in slugs:
+        if slug != "NOTOOL" and slug in enabled_toolkits:
+            toolkit_tools = composio.tools.get(user_id=str(user_id), toolkits=[slug])
+            if toolkit_tools:
+                tools_list.extend(toolkit_tools)
+
+        if slug == "SEARCH":
+            tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_NEWS_SEARCH"]))
+            tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_SEARCH"]))
+            tools_list.extend(composio.tools.get(user_id=str(user_id), tools=["COMPOSIO_SEARCH_FINANCE_SEARCH"]))
+            enabled_toolkits.append("COMPOSIO_SEARCH_NEWS_SEARCH")
+            enabled_toolkits.append("COMPOSIO_SEARCH_SEARCH")
+            enabled_toolkits.append("COMPOSIO_SEARCH_FINANCE_SEARCH")
 
     model_with_tools = model
     if tools_list:
