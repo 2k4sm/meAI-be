@@ -49,7 +49,13 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
-sio = socketio.AsyncServer(cors_allowed_origins='*', async_mode='asgi')
+sio = socketio.AsyncServer(
+    cors_allowed_origins='*', 
+    async_mode='asgi',
+    ping_timeout=90000,
+    ping_interval=25,
+    max_http_buffer_size=1e8,
+)
 
 import app.routers.conversation_sockets
 
